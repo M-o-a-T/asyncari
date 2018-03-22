@@ -1,0 +1,24 @@
+Source: trio-ari
+Maintainer: Matthias Urlichs <matthias@urlichs.de>
+Section: python
+Priority: optional
+Build-Depends: dh-python, python3-setuptools, python3-all, debhelper (>= 9)
+Standards-Version: 3.9.6
+Homepage: https://github.com/M-o-a-T/trio-ari
+
+Package: python3-trio-ari
+Architecture: all
+Depends: ${misc:Depends}, ${python3:Depends}
+Description: A Trio-ified adapter for the Asterisk ARI interface
+ trio-ari
+ ========
+ .
+ Welcome to `trio-ari <https://github.com/M-o-a-T/trio-ari>`__!
+ .
+ Trio-ARI is a Trio-ified adapter for the Asterisk ARI interface.
+ Currently, it adapts `aioari`_ to be used with Trio programs.
+ .
+ License: Your choice of MIT or Apache License 2.0
+ .
+ .
+

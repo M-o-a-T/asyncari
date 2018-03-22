@@ -55,3 +55,4 @@ coverage.xml
 # Django stuff:
 *.log
 *.pot
+/.pybuild/
