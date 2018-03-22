@@ -14,6 +14,7 @@ might want to do to get started:
 
 * Search the source tree for COOKIECUTTER-TRIO-TODO to find other
   places to fill in.
+
 * Enable `Read the Docs <https://readthedocs.org>`__. (Note: this
   project contains a ``.readthedocs.yml`` file that should be enough
   to get things working.)
@@ -43,7 +44,7 @@ Tips
 To run tests
 ------------
 
-* Install requirements: ``pip install -r test-requirements.txt``
+* Install requirements: ``pip install -r ci/test-requirements.txt``
   (possibly in a virtualenv)
 
 * Actually run the tests: ``pytest trio_ari``

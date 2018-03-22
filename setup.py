@@ -16,30 +16,23 @@ setup(
     packages=find_packages(),
     install_requires=[
         "trio",
+        "trio-asyncio",
+        "aioari",
     ],
     keywords=[
-        # COOKIECUTTER-TRIO-TODO: add some keywords
-        # "async", "io", "networking", ...
+        "asterisk",
     ],
     python_requires=">=3.6",
     classifiers=[
         "License :: OSI Approved :: MIT License",
         "License :: OSI Approved :: Apache Software License",
-        # COOKIECUTTER-TRIO-TODO: Remove any of these classifiers that don't
-        # apply:
         "Operating System :: POSIX :: Linux",
         "Operating System :: MacOS :: MacOS X",
-        "Operating System :: Microsoft :: Windows",
         "Programming Language :: Python :: 3 :: Only",
         "Programming Language :: Python :: Implementation :: CPython",
         "Programming Language :: Python :: Implementation :: PyPy",
-        # COOKIECUTTER-TRIO-TODO: Consider adding trove classifiers for:
-        #
-        # - Development Status
-        # - Intended Audience
-        # - Topic
-        #
-        # For the full list of options, see:
-        #   https://pypi.python.org/pypi?%3Aaction=list_classifiers
+        "Framework :: Trio",
+        "Topic :: Communications :: Telephony",
+        "Development Status :: 3 - Alpha",
     ],
 )
