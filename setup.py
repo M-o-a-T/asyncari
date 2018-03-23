@@ -17,7 +17,8 @@ setup(
     install_requires=[
         "trio",
         "trio-asyncio",
-        "aioari",
+        "aioswagger11",
+        "aiohttp",
     ],
     keywords=[
         "asterisk",

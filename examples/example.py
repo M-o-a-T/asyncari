@@ -55,9 +55,9 @@ async def on_start(objs, event):
     """
     channel = objs['channel']
     await trio.sleep(0.01)
-    r = await channel.getChannelVar(variable="CALLERID(num)")
-    t = await channel.getChannelVar(variable="CALLERID(ton)")
-    print("** START **", channel, t,r,event)
+    #r = await channel.getChannelVar(variable="CALLERID(num)")
+    #t = await channel.getChannelVar(variable="CALLERID(ton)")
+    #print("** START **", channel, t,r,event)
     channel.on_event('ChannelDtmfReceived', on_dtmf)
     await channel.answer()
     await channel.play(media='sound:hello-world')
@@ -68,9 +68,7 @@ async def on_end(channel, event):
     :param channel: Channel DTMF was received from.
     :param event: Event.
     """
-    print("** END **", channel, event)
-
-sessions = {}
+    #print("** END **", channel, event)
 
 logging.basicConfig(level=logging.DEBUG)
 async def main():
@@ -78,7 +76,8 @@ async def main():
         client.on_channel_event('StasisStart', on_start)
         client.on_channel_event('StasisEnd', on_end)
         # Run the WebSocket
-        await trio.sleep_forever()
+        async for m in client:
+            print("** EVENT **", m)
 
 if __name__ == "__main__":
     trio_asyncio.run(main)
