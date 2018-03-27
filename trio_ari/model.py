@@ -267,6 +267,7 @@ class Channel(BaseObject):
 
     id_generator = DefaultObjectIdGenerator('channelId')
     api = "channels"
+    bridge = None
 
     def _init(self):
         super()._init()
@@ -279,13 +280,18 @@ class Channel(BaseObject):
             return # unknown channel (program restarted?)
         elif msg.type == "StasisEnd":
             type(self).active.remove(self)
+        elif msg.type == "ChannelEnteredBridge":
+            self.bridge = msg.bridge
+        elif msg.type == "ChannelLeftBridge":
+            if self.bridge is msg.bridge:
+                self.bridge = None
         elif msg.type == "PlaybackStarted":
             self.playbacks.add(msg.playback)
         elif msg.type == "PlaybackFinished":
             self.playbacks.remove(msg.playback)
         elif msg.type == "ChannelStateChange":
             pass
-        elif msg.type in {"ChannelDtmfReceived"}:
+        elif msg.type in {"ChannelDtmfReceived","ChannelHangupRequest"}:
             pass
         else:
             log.warn("Event not recognized: %s for %s", msg, self)
@@ -307,6 +313,7 @@ class Bridge(BaseObject):
     def _init(self):
         super()._init()
         self.playbacks = set()
+        self.channels = set()
 
     async def do_event(self, msg):
         if msg.type == "BridgeDestroyed":
@@ -314,7 +321,16 @@ class Bridge(BaseObject):
         elif msg.type == "BridgeMerged" and msg.bridge is not self:
             type(self).active.remove(self)
             type(self).cache[self.id] = msg.bridge
+            msg.bridge.channels |= self.channels
             msg.bridge.playbacks |= self.playbacks
+            for ch in self.channels:
+                ch.bridge = msg.bridge
+            for pb in self.playbacks:
+                pb.bridge = msg.bridge
+        elif msg.type == "ChannelEnteredBridge":
+            self.channels.add(msg.channel)
+        elif msg.type == "ChannelLeftBridge":
+            self.channels.remove(msg.channel)
         elif msg.type == "PlaybackStarted":
             self.playbacks.add(msg.playback)
         elif msg.type == "PlaybackFinished":
