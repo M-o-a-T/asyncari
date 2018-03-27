@@ -337,7 +337,7 @@ class Playback(BaseObject):
     channel = None
     bridge = None
 
-    def __init(self):
+    def _init(self):
         target = self.json.get('target_uri', '')
         if target.startswith('channel:'):
             self.channel = Channel(self.client, id=target[8:])
