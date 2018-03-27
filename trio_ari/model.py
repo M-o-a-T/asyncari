@@ -22,6 +22,7 @@ import logging
 import json
 import inspect
 from functools import partial
+from weakref import WeakValueDictionary
 import trio_asyncio
 
 from aiohttp.web_exceptions import HTTPNoContent
@@ -134,19 +135,48 @@ class BaseObject(object):
     :type  client:  client.Client
     :param resource:    Associated Swagger resource.
     :type  resource:    swaggerpy.client.Resource
-    :param as_json: JSON representation of this object instance.
-    :type  as_json: dict
-    :param event_reg:
+    :param json: JSON representation of this object instance.
+    :type  json: dict
     """
 
     id_generator = ObjectIdGenerator()
+    cache = None
+    active = None
+    id = None
+    _queue = None
+    json = None
+    api = None
 
-    def __init__(self, client, resource, as_json, event_reg):
+    def __new__(cls, client, id=None, json=None):
+        if cls.cache is None:
+            cls.cache = WeakValueDictionary()
+        if cls.active is None:
+            cls.active = set()
+        if id is None:
+            id = cls.id_generator.id_as_str(json)
+        self = cls.cache.get(id)
+        if self is not None:
+            return self
+        self = object.__new__(cls)
+        cls.cache[id] = self
+        return self
+
+    def __init__(self, client, id=None, json=None):
+        if self.api is None:
+            raise RuntimeError("You need to override .api")
+        if self.json is None:
+            self.json = json
+        if self.id is not None:
+            assert client == self.client
+            return
+        if id is None:
+            id = self.id_generator.id_as_str(json)
         self.client = client
-        self.api = resource
-        self.json = as_json
-        self.id = self.id_generator.id_as_str(as_json)
-        self.event_reg = event_reg
+        self.api = getattr(self.client.swagger, self.api)
+        if self.json is None:
+            self.json = json
+        self.id = id
+        self.event_reg = {}
 
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, self.id)
@@ -193,31 +223,33 @@ class BaseObject(object):
         :param args: Arguments to pass to fn
         :param kwargs: Keyword arguments to pass to fn
         """
+        self.event_reg.setdefault(event_type, list()).append((fn, args, kwargs))
 
-        async def fn_filter(objects, event, *args, **kwargs):
-            """Filter received events for this object.
+    async def do_event(self, msg):
+        """Run a message through this object's event queue/list"""
+        callbacks = self.event_reg.get(msg.type)
+        if not callbacks:
+            return
+        for p, a, k in callbacks:
+            r = p(self, msg, *a, **k)
+            if inspect.iscoroutine(r):
+                await r
 
-            :param objects: Objects found in this event.
-            :param event: Event.
-            """
-            res = None
-            if isinstance(objects, dict):
-                if self.id in [c.id for c in objects.values()]:
-                    res = fn(objects, event, *args, **kwargs)
-            else:
-                if self.id == objects.id:
-                    res = fn(objects, event, *args, **kwargs)
-            # The callback may or may not be an async function
-            if inspect.iscoroutine(res):
-                await res
-            return res
+        if self._queue is not None:
+            self._queue.put_nowait(msg)
+            # This is intentional: raise an error if the queue is full
+            # instead of waiting forever and possibly deadlocking
 
+    def __aiter__(self):
+        if self._queue is None:
+            self._queue = trio.Queue(99)
 
-        if not self.event_reg:
-            msg = "Event callback registration called on object with no events"
-            raise RuntimeError(msg)
+    async def __anext__(self):
+        return await self._queue.get()
 
-        return self.event_reg(event_type, fn_filter, *args, **kwargs)
+    async def aclose(self):
+        """No longer queue events"""
+        self._queue = None
 
 
 class Channel(BaseObject):
@@ -225,15 +257,36 @@ class Channel(BaseObject):
 
     :param client:  ARI client.
     :type  client:  client.Client
-    :param channel_json: Instance data
+    ;param id: Instance ID, if JSON is not yet known
+    :param json: Instance data
     """
 
     id_generator = DefaultObjectIdGenerator('channelId')
+    api = "channels"
 
-    def __init__(self, client, channel_json):
-        super(Channel, self).__init__(
-            client, client.swagger.channels, channel_json,
-            client.on_channel_event)
+    def __init__(self, *a,**k):
+        super().__init__(*a, **k)
+        self.playbacks = set()
+
+    async def do_event(self, msg):
+        await super().do_event(msg)
+        if msg.type == "StasisStart":
+            type(self).active.add(self)
+        elif self not in type(self).active:
+            return # unknown channel (program restarted?)
+        elif msg.type == "StasisEnd":
+            type(self).active.remove(self)
+        elif msg.type == "PlaybackStarted":
+            self.playbacks.add(msg.playback)
+        elif msg.type == "PlaybackFinished":
+            self.playbacks.remove(msg.playback)
+        elif msg.type == "ChannelStateChange":
+            import pdb;pdb.set_trace()
+            pass
+        elif msg.type in {"ChannelDtmfReceived"}:
+            pass
+        else:
+            log.warn("Event not recognized: %s for %s", msg, self)
 
 
 class Bridge(BaseObject):
@@ -241,15 +294,31 @@ class Bridge(BaseObject):
 
     :param client:  ARI client.
     :type  client:  client.Client
-    :param bridge_json: Instance data
+    ;param id: Instance ID, if JSON is not yet known
+    :param json: Instance data
     """
 
     id_generator = DefaultObjectIdGenerator('bridgeId')
+    api = "bridges"
 
-    def __init__(self, client, bridge_json):
-        super(Bridge, self).__init__(
-            client, client.swagger.bridges, bridge_json,
-            client.on_bridge_event)
+    def __init__(self, *a,**k):
+        super().__init__(*a, **k)
+        self.playbacks = set()
+
+    async def do_event(self, msg):
+        await super().do_event(msg)
+        if msg.type == "BridgeDestroyed":
+            type(self).active.remove(self)
+        elif msg.type == "BridgeMerged" and msg.bridge is not self:
+            type(self).active.remove(self)
+            type(self).cache[self.id] = msg.bridge
+            msg.bridge.playbacks |= self.playbacks
+        elif msg.type == "PlaybackStarted":
+            self.playbacks.add(msg.playback)
+        elif msg.type == "PlaybackFinished":
+            self.playbacks.remove(msg.playback)
+        else:
+            log.warn("Event not recognized: %s for %s", msg, self)
 
 
 class Playback(BaseObject):
@@ -257,14 +326,33 @@ class Playback(BaseObject):
 
     :param client:  ARI client.
     :type  client:  client.Client
-    :param playback_json: Instance data
+    ;param id: Instance ID, if JSON is not yet known
+    :param json: Instance data
     """
     id_generator = DefaultObjectIdGenerator('playbackId')
+    api = "playbacks"
+    channel = None
+    bridge = None
 
-    def __init__(self, client, playback_json):
-        super(Playback, self).__init__(
-            client, client.swagger.playbacks, playback_json,
-            client.on_playback_event)
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+
+        target = self.json.get('target_uri', '')
+        if target.startswith('channel:'):
+            self.channel = Channel(self.client, id=target[8:])
+        elif target.startswith('bridge:'):
+            self.bridge = Bridge(self.client, id=target[7:])
+
+    async def do_event(self, msg):
+        await super().do_event(msg)
+        if self.channel is not None:
+            await self.channel.do_event(msg)
+        if self.bridge is not None:
+            await self.bridge.do_event(msg)
+        if msg.type in {"PlaybackStarted","PlaybackFinished"}:
+            pass
+        else:
+            log.warn("Event not recognized: %s for %s", msg, self)
 
 
 class LiveRecording(BaseObject):
@@ -272,14 +360,15 @@ class LiveRecording(BaseObject):
 
     :param client: ARI client
     :type  client: client.Client
-    :param recording_json: Instance data
+    ;param id: Instance ID, if JSON is not yet known
+    :param json: Instance data
     """
     id_generator = DefaultObjectIdGenerator('recordingName', id_field='name')
+    api = "recordings"
 
-    def __init__(self, client, recording_json):
-        super(LiveRecording, self).__init__(
-            client, client.swagger.recordings, recording_json,
-            client.on_live_recording_event)
+    async def do_event(self, msg):
+        await super().do_event(msg)
+        log.warn("Event not recognized: %s for %s", msg, self)
 
 
 class StoredRecording(BaseObject):
@@ -287,14 +376,15 @@ class StoredRecording(BaseObject):
 
     :param client: ARI client
     :type  client: client.Client
-    :param recording_json: Instance data
+    ;param id: Instance ID, if JSON is not yet known
+    :param json: Instance data
     """
     id_generator = DefaultObjectIdGenerator('recordingName', id_field='name')
+    api = "recordings"
 
-    def __init__(self, client, recording_json):
-        super(StoredRecording, self).__init__(
-            client, client.swagger.recordings, recording_json,
-            client.on_stored_recording_event)
+    async def do_event(self, msg):
+        await super().do_event(msg)
+        log.warn("Event not recognized: %s for %s", msg, self)
 
 
 # noinspection PyDocstring
@@ -317,14 +407,15 @@ class Endpoint(BaseObject):
 
     :param client:  ARI client.
     :type  client:  client.Client
-    :param endpoint_json: Instance data
+    ;param id: Instance ID, if JSON is not yet known
+    :param json: Instance data
     """
     id_generator = EndpointIdGenerator()
+    api = "endpoints"
 
-    def __init__(self, client, endpoint_json):
-        super(Endpoint, self).__init__(
-            client, client.swagger.endpoints, endpoint_json,
-            client.on_endpoint_event)
+    async def do_event(self, msg):
+        await super().do_event(msg)
+        log.warn("Event not recognized: %s for %s", msg, self)
 
 
 class DeviceState(BaseObject):
@@ -332,14 +423,15 @@ class DeviceState(BaseObject):
 
     :param client:  ARI client.
     :type  client:  client.Client
-    :param endpoint_json: Instance data
+    ;param id: Instance ID, if JSON is not yet known
+    :param json: Instance data
     """
     id_generator = DefaultObjectIdGenerator('deviceName', id_field='name')
+    endpoint = "deviceStates"
 
-    def __init__(self, client, device_state_json):
-        super(DeviceState, self).__init__(
-            client, client.swagger.deviceStates, device_state_json,
-            client.on_device_state_event)
+    async def do_event(self, msg):
+        await super().do_event(msg)
+        log.warn("Event not recognized: %s for %s", msg, self)
 
 
 class Sound(BaseObject):
@@ -347,14 +439,16 @@ class Sound(BaseObject):
 
     :param client:  ARI client.
     :type  client:  client.Client
-    :param sound_json: Instance data
+    ;param id: Instance ID, if JSON is not yet known
+    :param json: Instance data
     """
 
     id_generator = DefaultObjectIdGenerator('soundId')
+    endpoint = "sounds"
 
-    def __init__(self, client, sound_json):
-        super(Sound, self).__init__(
-            client, client.swagger.sounds, sound_json, client.on_sound_event)
+    async def do_event(self, msg):
+        await super().do_event(msg)
+        log.warn("Event not recognized: %s for %s", msg, self)
 
 
 class Mailbox(BaseObject):
@@ -362,14 +456,16 @@ class Mailbox(BaseObject):
 
     :param client:       ARI client.
     :type  client:       client.Client
-    :param mailbox_json: Instance data
+    ;param id: Instance ID, if JSON is not yet known
+    :param json: Instance data
     """
 
     id_generator = DefaultObjectIdGenerator('mailboxName', id_field='name')
+    endpoint = "mailboxes"
 
-    def __init__(self, client, mailbox_json):
-        super(Mailbox, self).__init__(
-            client, client.swagger.mailboxes, mailbox_json, None)
+    async def do_event(self, msg):
+        await super().do_event(msg)
+        log.warn("Event not recognized: %s for %s", msg, self)
 
 
 async def promote(client, resp, operation_json):
@@ -391,6 +487,7 @@ async def promote(client, resp, operation_json):
     if res == "":
         return None
     resp_json = json.loads(res)
+    log.debug("resp=%s",resp_json)
 
     response_class = operation_json['responseClass']
     is_list = False
@@ -401,8 +498,8 @@ async def promote(client, resp, operation_json):
     factory = CLASS_MAP.get(response_class)
     if factory:
         if is_list:
-            return [factory(client, obj) for obj in resp_json]
-        return factory(client, resp_json)
+            return [factory(client, json=obj) for obj in resp_json]
+        return factory(client, json=resp_json)
     log.info("No mapping for %s; returning JSON" % response_class)
     return resp_json
 

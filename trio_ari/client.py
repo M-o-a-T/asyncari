@@ -5,6 +5,7 @@
 """Trio-ified ARI client library.
 """
 
+import re
 import json
 import urllib
 import aiohttp
@@ -12,6 +13,7 @@ import trio_asyncio
 import trio
 import aioswagger11
 import inspect
+from .model import CLASS_MAP
 
 from functools import partial
 
@@ -46,6 +48,7 @@ class Client:
         url = urllib.parse.urljoin(base_url, "ari/api-docs/resources.json")
         self.swagger = aioswagger11.client.SwaggerClient(
             http_client=http_client, url=url)
+        self.class_map = CLASS_MAP.copy()
 
     async def __aenter__(self):
         await self._init()
@@ -166,9 +169,10 @@ class Client:
 
     async def process_ws(self, msg):
         """Process one incoming websocket message.
-        Overrided for Trio.
         """
+        msg = EventMessage(self, msg)
 
+        # First, do the traditional listeners
         listeners = list(self.event_listeners.get(msg['type'], [])) \
                     + list(self.event_listeners.get('*', []))
         for listener in listeners:
@@ -179,6 +183,9 @@ class Client:
             cb = callback(msg, *args, **kwargs)
             if inspect.iscoroutine(cb):
                 await cb
+
+        # Next, dispatch the event to the objects in the message
+        await msg._send_event()
 
     def on_event(self, event_type, event_cb, *args, **kwargs):
         """Register callback for events with given type.
@@ -248,9 +255,9 @@ class Client:
                                       callback
             """
             # Extract the fields which are of the expected type
-            obj = {obj_field: factory_fn(self, event[obj_field])
+            obj = {obj_field: factory_fn(self, json=event[obj_field])
                    for obj_field in obj_fields
-                   if event.get(obj_field)}
+                   if event._get(obj_field)}
             # If there's only one field in the schema, just pass that along
             if len(obj_fields) == 1:
                 if obj:
@@ -359,6 +366,61 @@ class Client:
         """
         return self.on_object_event(event_type, fn, Sound, 'Sound',
                                     *args, **kwargs)
+
+class EventMessage:
+    """This class encapsulates an event.
+    All elements with known types are converted to objects,
+    if a class for them is registered.
+    """
+    def __init__(self, client, msg):
+        self._client = client
+        self._orig_msg = msg
+
+        event_type = msg['type']
+        event_model = client.event_models.get(event_type)
+        if not event_model:
+            logger.warn("Cannot find event model '%s'" % event_type)
+            return
+        event_model = event_model.get('properties', {})
+
+        for k, v in msg.items():
+            setattr(self, k, v)
+
+            m = event_model.get(k)
+            if m is None:
+                continue
+            t = m['type']
+            is_list = False
+            m = re.match('''List\[(.*)\]''', t)
+            if m:
+                t = m.group(1)
+                is_list = True
+            factory = client.class_map.get(t)
+            if factory is None:
+                continue
+            if is_list:
+                v = [factory(client, json=obj) for obj in v]
+            else:
+                v = factory(client, json=v)
+
+            setattr(self, k, v)
+
+    def __repr__(self):
+        return "<%s %s>" % (self.__class__.__name__, self.type)
+
+    async def _send_event(self):
+        for k in self._orig_msg.keys():
+            v = getattr(self, k)
+            do_ev = getattr(v, 'do_event', None)
+            if do_ev is not None:
+                await do_ev(self)
+
+    def __getitem__(self, k):
+        return self._orig_msg.__getitem__(k)
+
+    def _get(self, k, v=None):
+        return self._orig_msg.get(k, v)
+
 
 class ClientReader:
     link = None
