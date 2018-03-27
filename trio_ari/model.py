@@ -281,7 +281,6 @@ class Channel(BaseObject):
         elif msg.type == "PlaybackFinished":
             self.playbacks.remove(msg.playback)
         elif msg.type == "ChannelStateChange":
-            import pdb;pdb.set_trace()
             pass
         elif msg.type in {"ChannelDtmfReceived"}:
             pass
