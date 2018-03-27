@@ -177,6 +177,10 @@ class BaseObject(object):
         self.api = getattr(self.client.swagger, self.api)
         self.id = id
         self.event_reg = {}
+        self._init()
+
+    def _init(self):
+        pass
 
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, self.id)
@@ -264,8 +268,8 @@ class Channel(BaseObject):
     id_generator = DefaultObjectIdGenerator('channelId')
     api = "channels"
 
-    def __init__(self, *a,**k):
-        super().__init__(*a, **k)
+    def _init(self):
+        super()._init()
         self.playbacks = set()
 
     async def do_event(self, msg):
@@ -300,8 +304,8 @@ class Bridge(BaseObject):
     id_generator = DefaultObjectIdGenerator('bridgeId')
     api = "bridges"
 
-    def __init__(self, *a,**k):
-        super().__init__(*a, **k)
+    def _init(self):
+        super()._init()
         self.playbacks = set()
 
     async def do_event(self, msg):
@@ -333,9 +337,7 @@ class Playback(BaseObject):
     channel = None
     bridge = None
 
-    def __init__(self, *a, **k):
-        super().__init__(*a, **k)
-
+    def __init(self):
         target = self.json.get('target_uri', '')
         if target.startswith('channel:'):
             self.channel = Channel(self.client, id=target[8:])
