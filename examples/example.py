@@ -22,6 +22,11 @@ ast_username = os.getenv("AST_USER", 'asterisk')
 ast_password = os.getenv("AST_PASS", 'asterisk')
 ast_app = os.getenv("AST_APP", 'hello')
 
+async def do_hangup(channel, event):
+    if channel.playbacks:
+        return # something is still playing?
+    await channel.continueInDialplan()
+
 async def on_dtmf(channel, event):
     """Callback for DTMF events.
 
@@ -35,9 +40,8 @@ async def on_dtmf(channel, event):
     print(digit)
     await trio.sleep(0.01)
     if digit == '#':
-        await channel.play(media='sound:goodbye')
-        await trio.sleep(2)
-        await channel.continueInDialplan()
+        channel.on_event("PlaybackFinished", do_hangup)
+        await channel.play(media='sound:vm-goodbye')
     elif digit == '*':
         await channel.play(media='sound:asterisk-friend')
     else:
