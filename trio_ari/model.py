@@ -273,7 +273,6 @@ class Channel(BaseObject):
         self.playbacks = set()
 
     async def do_event(self, msg):
-        await super().do_event(msg)
         if msg.type == "StasisStart":
             type(self).active.add(self)
         elif self not in type(self).active:
@@ -290,6 +289,7 @@ class Channel(BaseObject):
             pass
         else:
             log.warn("Event not recognized: %s for %s", msg, self)
+        await super().do_event(msg)
 
 
 class Bridge(BaseObject):
@@ -309,7 +309,6 @@ class Bridge(BaseObject):
         self.playbacks = set()
 
     async def do_event(self, msg):
-        await super().do_event(msg)
         if msg.type == "BridgeDestroyed":
             type(self).active.remove(self)
         elif msg.type == "BridgeMerged" and msg.bridge is not self:
@@ -322,6 +321,7 @@ class Bridge(BaseObject):
             self.playbacks.remove(msg.playback)
         else:
             log.warn("Event not recognized: %s for %s", msg, self)
+        await super().do_event(msg)
 
 
 class Playback(BaseObject):
@@ -345,7 +345,6 @@ class Playback(BaseObject):
             self.bridge = Bridge(self.client, id=target[7:])
 
     async def do_event(self, msg):
-        await super().do_event(msg)
         if self.channel is not None:
             await self.channel.do_event(msg)
         if self.bridge is not None:
@@ -354,6 +353,7 @@ class Playback(BaseObject):
             pass
         else:
             log.warn("Event not recognized: %s for %s", msg, self)
+        await super().do_event(msg)
 
 
 class LiveRecording(BaseObject):
@@ -368,8 +368,8 @@ class LiveRecording(BaseObject):
     api = "recordings"
 
     async def do_event(self, msg):
-        await super().do_event(msg)
         log.warn("Event not recognized: %s for %s", msg, self)
+        await super().do_event(msg)
 
 
 class StoredRecording(BaseObject):
@@ -384,8 +384,8 @@ class StoredRecording(BaseObject):
     api = "recordings"
 
     async def do_event(self, msg):
-        await super().do_event(msg)
         log.warn("Event not recognized: %s for %s", msg, self)
+        await super().do_event(msg)
 
 
 # noinspection PyDocstring
@@ -415,8 +415,8 @@ class Endpoint(BaseObject):
     api = "endpoints"
 
     async def do_event(self, msg):
-        await super().do_event(msg)
         log.warn("Event not recognized: %s for %s", msg, self)
+        await super().do_event(msg)
 
 
 class DeviceState(BaseObject):
@@ -431,8 +431,8 @@ class DeviceState(BaseObject):
     endpoint = "deviceStates"
 
     async def do_event(self, msg):
-        await super().do_event(msg)
         log.warn("Event not recognized: %s for %s", msg, self)
+        await super().do_event(msg)
 
 
 class Sound(BaseObject):
@@ -448,8 +448,8 @@ class Sound(BaseObject):
     endpoint = "sounds"
 
     async def do_event(self, msg):
-        await super().do_event(msg)
         log.warn("Event not recognized: %s for %s", msg, self)
+        await super().do_event(msg)
 
 
 class Mailbox(BaseObject):
@@ -465,8 +465,8 @@ class Mailbox(BaseObject):
     endpoint = "mailboxes"
 
     async def do_event(self, msg):
-        await super().do_event(msg)
         log.warn("Event not recognized: %s for %s", msg, self)
+        await super().do_event(msg)
 
 
 async def promote(client, resp, operation_json):
