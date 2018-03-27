@@ -159,13 +159,15 @@ class BaseObject(object):
             return self
         self = object.__new__(cls)
         cls.cache[id] = self
+        self.json = {}
         return self
 
     def __init__(self, client, id=None, json=None):
         if self.api is None:
             raise RuntimeError("You need to override .api")
-        if self.json is None:
-            self.json = json
+        if json is not None:
+            # assume that the most-current event has the most-current JSON
+            self.json.update(json)
         if self.id is not None:
             assert client == self.client
             return
@@ -173,8 +175,6 @@ class BaseObject(object):
             id = self.id_generator.id_as_str(json)
         self.client = client
         self.api = getattr(self.client.swagger, self.api)
-        if self.json is None:
-            self.json = json
         self.id = id
         self.event_reg = {}
 
