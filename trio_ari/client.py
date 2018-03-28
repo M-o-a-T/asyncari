@@ -433,8 +433,8 @@ class ClientReader:
             self.link = self.client.on_event('*', self._queue)
         return await self.queue.get()
 
-    async def _queue(self, *a):
-        await self.queue.put(a)
+    async def _queue(self, msg):
+        await self.queue.put(msg)
 
     async def aclose(self):
         if self.link is not None:

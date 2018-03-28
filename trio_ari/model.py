@@ -23,11 +23,16 @@ import json
 import inspect
 from functools import partial
 from weakref import WeakValueDictionary
+import trio
 import trio_asyncio
 
 from aiohttp.web_exceptions import HTTPNoContent
 
 log = logging.getLogger(__name__)
+
+
+class StateError(RuntimeError):
+    """The expected or waited-for state didn't occur"""
 
 
 class Repository(object):
@@ -191,6 +196,9 @@ class BaseObject(object):
 
         :param item:
         """
+        return self._get_enriched(item)
+
+    def _get_enriched(self, item):
         log.debug("Issuing command %s", item)
         oper = getattr(self.api, item, None)
         if not (hasattr(oper, '__call__') and hasattr(oper, 'json')):
@@ -217,6 +225,13 @@ class BaseObject(object):
 
         return enrich_operation
 
+
+    async def create(self, **k):
+        res = await self._get_enriched('create')(**k)
+        type(self).active.add(res)
+        return res
+        
+        
     def on_event(self, event_type, fn, *args, **kwargs):
         """Register event callbacks for this specific domain object.
 
@@ -272,6 +287,9 @@ class Channel(BaseObject):
     def _init(self):
         super()._init()
         self.playbacks = set()
+        self.vars = {}
+        self._is_up = trio.Event()
+        self._dtmf = trio.Queue(20)
 
     async def do_event(self, msg):
         if msg.type == "StasisStart":
@@ -280,6 +298,9 @@ class Channel(BaseObject):
             return # unknown channel (program restarted?)
         elif msg.type == "StasisEnd":
             type(self).active.remove(self)
+            self._is_up.set()
+        elif msg.type == "ChannelVarset":
+            self.vars[msg.variable] = msg.value
         elif msg.type == "ChannelEnteredBridge":
             self.bridge = msg.bridge
         elif msg.type == "ChannelLeftBridge":
@@ -289,14 +310,20 @@ class Channel(BaseObject):
             self.playbacks.add(msg.playback)
         elif msg.type == "PlaybackFinished":
             self.playbacks.remove(msg.playback)
+        elif msg.type == "ChannelHangupRequest":
+            self._is_up.set()
         elif msg.type == "ChannelStateChange":
-            pass
-        elif msg.type in {"ChannelDtmfReceived","ChannelHangupRequest"}:
+            self._is_up.set()
+        elif msg.type in {"ChannelDtmfReceived","ChannelHangupRequest","ChannelConnectedLine"}:
             pass
         else:
             log.warn("Event not recognized: %s for %s", msg, self)
         await super().do_event(msg)
 
+    async def wait_up(self):
+        await self._is_up.wait()
+        if self.json['state'].lower() != "up":
+            raise StateError(self)
 
 class Bridge(BaseObject):
     """First class object API.
@@ -317,7 +344,10 @@ class Bridge(BaseObject):
 
     async def do_event(self, msg):
         if msg.type == "BridgeDestroyed":
-            type(self).active.remove(self)
+            try:
+                type(self).active.remove(self)
+            except KeyError:  # may or may not be ours
+                pass
         elif msg.type == "BridgeMerged" and msg.bridge is not self:
             type(self).active.remove(self)
             type(self).cache[self.id] = msg.bridge
@@ -354,6 +384,8 @@ class Playback(BaseObject):
     bridge = None
 
     def _init(self):
+        self._is_playing = trio.Event()
+        self._is_done = trio.Event()
         target = self.json.get('target_uri', '')
         if target.startswith('channel:'):
             self.channel = Channel(self.client, id=target[8:])
@@ -365,11 +397,22 @@ class Playback(BaseObject):
             await self.channel.do_event(msg)
         if self.bridge is not None:
             await self.bridge.do_event(msg)
-        if msg.type in {"PlaybackStarted","PlaybackFinished"}:
-            pass
+        if msg.type == "PlaybackStarted":
+            self._is_playing.set()
+        elif msg.type == "PlaybackFinished":
+            self._is_playing.set()
+            self._is_done.set()
         else:
             log.warn("Event not recognized: %s for %s", msg, self)
         await super().do_event(msg)
+
+    async def wait_playing(self):
+        """Wait until the sound has started playing"""
+        await self._is_playing.wait()
+
+    async def wait_done(self):
+        """Wait until the sound has stopped playing"""
+        await self._is_done.wait()
 
 
 class LiveRecording(BaseObject):
@@ -497,14 +540,14 @@ async def promote(client, resp, operation_json):
     :type  operation_json: dict
     :return:
     """
-    log.debug("resp=%s",resp)
+    log.debug("resp1=%s",resp)
     if resp.status == HTTPNoContent.status_code:
         return None
     res = await trio_asyncio.run_asyncio(resp.text)
     if res == "":
         return None
     resp_json = json.loads(res)
-    log.debug("resp=%s",resp_json)
+    log.debug("resp2=%s",resp_json)
 
     response_class = operation_json['responseClass']
     is_list = False
