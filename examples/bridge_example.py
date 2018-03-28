@@ -69,7 +69,6 @@ async def stasis_start_cb(objs, ev):
     await bridge.addChannel(channel=channel.id)
 
 
-logging.basicConfig(level=logging.DEBUG)
 async def main():
     async with trio_ari.connect(ast_url, ast_app, ast_username,ast_password) as client:
         await setup(client)
@@ -78,5 +77,6 @@ async def main():
         await trio.sleep_forever()
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
     trio_asyncio.run(main)
 

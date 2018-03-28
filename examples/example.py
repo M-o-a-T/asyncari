@@ -74,7 +74,6 @@ async def on_end(channel, event):
     """
     #print("** END **", channel, event)
 
-logging.basicConfig(level=logging.DEBUG)
 async def main():
     async with trio_ari.connect(ast_url, ast_app, ast_username,ast_password) as client:
         client.on_channel_event('StasisStart', on_start)
@@ -84,4 +83,5 @@ async def main():
             print("** EVENT **", m)
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
     trio_asyncio.run(main)
