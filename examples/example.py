@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-"""Brief example of using the channel API.
+"""Brief example of using the channel API with a state machine.
 
 This app will answer any channel sent to Stasis(hello), and play "Hello,
 world" to the channel. For any DTMF events received, the number is played back
@@ -12,6 +12,7 @@ to the channel. Press # to hang up, and * for a special message.
 #
 
 import trio_ari
+from trio_ari.state import ToplevelState
 import trio_asyncio
 import trio
 import logging
@@ -22,33 +23,28 @@ ast_username = os.getenv("AST_USER", 'asterisk')
 ast_password = os.getenv("AST_PASS", 'asterisk')
 ast_app = os.getenv("AST_APP", 'hello')
 
-async def do_hangup(channel, event):
-    if channel.playbacks:
-        return # something is still playing?
-    await channel.continueInDialplan()
+class State(ToplevelState):
+    do_hang = False
 
-async def on_dtmf(channel, event):
-    """Callback for DTMF events.
+    async def on_start(self):
+        await self.channel.play(media='sound:hello-world')
 
-    When DTMF is received, play the digit back to the channel. # hangs up,
-    * plays a special message.
+    async def on_dtmf_Hash(self, evt):
+        self.do_hang = True
+        await self.channel.play(media='sound:vm-goodbye')
 
-    :param channel: Channel DTMF was received from.
-    :param event: Event.
-    """
-    digit = event['digit']
-    print(digit)
-    await trio.sleep(0.01)
-    if digit == '#':
-        channel.on_event("PlaybackFinished", do_hangup)
-        await channel.play(media='sound:vm-goodbye')
-    elif digit == '*':
-        await channel.play(media='sound:asterisk-friend')
-    else:
-        await channel.play(media='sound:digits/%s' % digit)
+    async def on_dtmf_Pound(self, evt):
+        await self.channel.play(media='sound:asterisk-friend')
 
+    async def on_dtmf(self, evt):
+        await self.channel.play(media='sound:digits/%s' % evt.digit)
 
-async def on_start(objs, event):
+    async def on_PlaybackFinished(self, evt):
+        if self.do_hang:
+            await self.channel.continueInDialplan()
+        
+async def on_start(objs, event, client):
+    
     """Callback for StasisStart events.
 
     On new channels, register the on_dtmf callback, answer the channel and
@@ -58,30 +54,19 @@ async def on_start(objs, event):
     :param event: Event.
     """
     channel = objs['channel']
-    await trio.sleep(0.01)
-    #r = await channel.getChannelVar(variable="CALLERID(num)")
-    #t = await channel.getChannelVar(variable="CALLERID(ton)")
-    #print("** START **", channel, t,r,event)
-    channel.on_event('ChannelDtmfReceived', on_dtmf)
     await channel.answer()
-    await channel.play(media='sound:hello-world')
-
-async def on_end(channel, event):
-    """Callback for StasisEnd events.
-
-    :param channel: Channel DTMF was received from.
-    :param event: Event.
-    """
-    #print("** END **", channel, event)
+    await client.nursery.start(State(channel).run)
 
 async def main():
     async with trio_ari.connect(ast_url, ast_app, ast_username,ast_password) as client:
-        client.on_channel_event('StasisStart', on_start)
-        client.on_channel_event('StasisEnd', on_end)
+        client.on_channel_event('StasisStart', on_start, client)
         # Run the WebSocket
         async for m in client:
             print("** EVENT **", m)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    trio_asyncio.run(main)
+    try:
+        trio_asyncio.run(main)
+    except KeyboardInterrupt:
+        pass
