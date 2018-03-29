@@ -182,6 +182,8 @@ class ToplevelState(ChannelState):
 		task_status.started()
 		try:
 			await super().run()
+		except ChannelExit:
+			pass
 		finally:
 			with trio.move_on_after(2) as s:
 				s.shield = True
