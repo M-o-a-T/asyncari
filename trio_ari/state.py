@@ -14,6 +14,8 @@ from .model import ChannelExit, BridgeExit, EventTimeout, StateError
 import logging
 logger = logging.getLogger(__name__)
 
+__all__ = ["ToplevelChanelstate", "Channelstate", "Bridgestate", "HangupBridgestate", "OutgoingChannelState"]
+
 _StartEvt = "_StartEvent"
 
 class _EvtHandler:
@@ -96,7 +98,7 @@ class BridgeState(_EvtHandler):
 
 	async def on_Merged(self, evt):
 		if evt.bridge is not self.bridge:
-			raise BridgeExit(self)
+			raise StopAsyncIteration
 
 class HangupBridgeState(BridgeState):
 	"""A bridge controller that removes all channels and deletes the
@@ -176,7 +178,7 @@ class ChannelState(_EvtHandler):
 		else:
 			await proc(evt)
 
-class ToplevelState(ChannelState):
+class ToplevelChannelState(ChannelState):
 	"""A channel state machine that unconditionally hangs up its channel on exception"""
 	async def run(self, task_status=trio.TASK_STATUS_IGNORED):
 		task_status.started()
@@ -192,7 +194,7 @@ class ToplevelState(ChannelState):
 				except Exception as exc:
 					logger.info("Channel %s gone: %s", self.channel, exc)
 
-class OutgoingState(ToplevelState):
+class OutgoingChannelState(ToplevelChannelState):
 	"""A channel state machine that waits for an initial StasisStart event before proceeding"""
 	async def run(self, task_status=trio.TASK_STATUS_IGNORED):
 		async for evt in self.channel:
@@ -201,3 +203,4 @@ class OutgoingState(ToplevelState):
 			break
 		task_status.started()
 		await super().run()
+

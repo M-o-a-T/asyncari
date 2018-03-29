@@ -23,6 +23,7 @@ import json
 import inspect
 from functools import partial
 from weakref import WeakValueDictionary
+from contextlib import suppress
 import trio
 import trio_asyncio
 
@@ -33,6 +34,18 @@ log = logging.getLogger(__name__)
 
 class StateError(RuntimeError):
     """The expected or waited-for state didn't occur"""
+
+class EventTimeout(Exception):
+    """There were no events past the timeout"""
+
+class ResourceExit(Exception):
+    """The resource does no longer exist."""
+
+class ChannelExit(ResourceExit):
+    """The channel has hung up."""
+
+class BridgeExit(ResourceExit):
+    """The bridge has terminated."""
 
 
 class Repository(object):
@@ -151,6 +164,8 @@ class BaseObject(object):
     _queue = None
     json = None
     api = None
+    state = None  # associated state machine
+    _waiting = False  # protect against re-entering the event iterator
 
     def __new__(cls, client, id=None, json=None):
         if cls.cache is None:
@@ -246,9 +261,7 @@ class BaseObject(object):
 
     async def do_event(self, msg):
         """Run a message through this object's event queue/list"""
-        callbacks = self.event_reg.get(msg.type)
-        if not callbacks:
-            return
+        callbacks = self.event_reg.get(msg.type, []) + self.event_reg.get("*", [])
         for p, a, k in callbacks:
             r = p(self, msg, *a, **k)
             if inspect.iscoroutine(r):
@@ -262,12 +275,28 @@ class BaseObject(object):
     def __aiter__(self):
         if self._queue is None:
             self._queue = trio.Queue(99)
+        return self
 
     async def __anext__(self):
-        return await self._queue.get()
+        if self._queue is None:
+            raise StopAsyncIteration
+        if self._waiting:
+            raise RuntimeError("Another task is waiting")
+        try:
+            self._waiting = True
+            res = await self._queue.get()
+        finally:
+            self._waiting = False
+        if res is None:
+            self._queue = None
+            raise StopAsyncIteration
+        return res
 
     async def aclose(self):
         """No longer queue events"""
+        if self._queue is not None:
+            with suppress(trio.WouldBlock):
+                self._queue.put_nowait(None)
         self._queue = None
 
 
@@ -325,6 +354,12 @@ class Channel(BaseObject):
         if self.json['state'].lower() != "up":
             raise StateError(self)
 
+    async def __anext__(self):
+        evt = await super().__anext__()
+        if evt.type in {"StasisEnd", "ChannelHangupRequest"}:
+            raise ChannelExit(evt)
+        return evt
+
 class Bridge(BaseObject):
     """First class object API.
 
@@ -368,6 +403,15 @@ class Bridge(BaseObject):
         else:
             log.warn("Event not recognized: %s for %s", msg, self)
         await super().do_event(msg)
+
+    async def __anext__(self):
+        evt = await super().__anext__()
+        if evt.type == "BridgeDestroyed":
+            raise BridgeExit(evt)
+        elif evt.type == "BridgeMerged" and msg.bridge is not self:
+            self._queue = None
+            raise StopAsyncIteration
+        return evt
 
 
 class Playback(BaseObject):

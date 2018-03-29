@@ -6,6 +6,7 @@
 """
 
 import re
+import os
 import json
 import urllib
 import aiohttp
@@ -25,6 +26,7 @@ __all__ = ["Client"]
 
 
 import aioswagger11.client
+import time
 
 from .model import Repository
 from .model import Channel, Bridge, Playback, LiveRecording, StoredRecording, Endpoint, DeviceState, Sound
@@ -49,7 +51,14 @@ class Client:
         self.swagger = aioswagger11.client.SwaggerClient(
             http_client=http_client, url=url)
         self.class_map = CLASS_MAP.copy()
+        tm = time.time()
+        self._id_name = "T%x.%x%03x" % (os.getpid(),int(tm),int(tm*0x1000)&0xFFF)
+        self._id_seq = 0
 
+    def generate_id(self):
+        self._id_seq += 1
+        return "%s.%d" % (self._id_name, self._id_seq)
+        
     async def __aenter__(self):
         await self._init()
         await self.nursery.start(self._run)
@@ -59,6 +68,21 @@ class Client:
         with trio.fail_after(1) as scope:
             scope.shield=True
             await trio_asyncio.run_asyncio(self.close)
+
+    async def new_channel(self, State, endpoint, **kw):
+        """Create a new channel. Keywords 'timeout' 'variables'
+        'originator' 'formats' are as in ARI.channels.originateWithID().
+
+        :param State: The :class:`OutgoingState` factory to use.
+        Called with the new channel.
+
+        Returns: the state of the channel. Note that this state
+        will have to wait for the initial ``StasisBegin`` event.
+        """
+        id = self.client.generate_id()
+        chan = Channel(self, id=id)
+        ch = await self.channels.originateWithId(endpoint=endpoint, app=self._app, **kw)
+        return State(ch)
 
     def __enter__(self):
         raise RunimeError("You need to call 'async with …'.")
@@ -85,7 +109,10 @@ class Client:
         """
         apps = self._apps
         if isinstance(apps, list):
+            self._app = apps[0]
             apps = ','.join(apps)
+        else:
+            self._app = apps.split(',',1)[0]
         ws = await trio_asyncio.run_asyncio(partial(self.swagger.events.eventWebsocket, app=apps))
         self.websockets.add(ws)
 
