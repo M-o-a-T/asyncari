@@ -26,6 +26,7 @@ from weakref import WeakValueDictionary
 from contextlib import suppress
 import trio
 import trio_asyncio
+import aiohttp
 
 from aiohttp.web_exceptions import HTTPNoContent
 
@@ -47,6 +48,8 @@ class ChannelExit(ResourceExit):
 class BridgeExit(ResourceExit):
     """The bridge has terminated."""
 
+class OperationError(RuntimeError):
+    """Some Swagger operation failed"""
 
 class Repository(object):
     """ARI repository.
@@ -94,7 +97,10 @@ class Repository(object):
                 jsc = oper.json
                 if kwargs:
                     oper = partial(oper, **kwargs)
-                res = await trio_asyncio.run_asyncio(oper)
+                try:
+                    res = await trio_asyncio.run_asyncio(oper)
+                except aiohttp.web_exceptions.HTTPBadRequest as exc:
+                    raise OperationError(getattr(exc,'data',{'message':exc.body})['message']) from exc
                 res = await promote(self.p.client, res, jsc)
                 return res
         return AttrOp(self, item)
@@ -164,7 +170,6 @@ class BaseObject(object):
     _queue = None
     json = None
     api = None
-    state = None  # associated state machine
     _waiting = False  # protect against re-entering the event iterator
 
     def __new__(cls, client, id=None, json=None):
@@ -190,17 +195,27 @@ class BaseObject(object):
             self.json.update(json)
         if self.id is not None:
             assert client == self.client
+            log.debug("NEW Known %s",self)
             return
         if id is None:
             id = self.id_generator.id_as_str(json)
         self.client = client
         self.api = getattr(self.client.swagger, self.api)
         self.id = id
-        self.event_reg = {}
+        self.event_listeners = {}
         self._init()
+        log.debug("NEW Unknown %s",self)
 
     def _init(self):
         pass
+
+    def remember(self):
+        """
+        Call this method after you created a persistent object.
+        This will ensure that Python won't forget about it even if you
+        don't keep a reference to it yourself.
+        """
+        type(self).active.add(self)
 
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__, self.id)
@@ -211,10 +226,12 @@ class BaseObject(object):
 
         :param item:
         """
-        return self._get_enriched(item)
+        try:
+            return self.json[item]
+        except KeyError:
+            return self._get_enriched(item)
 
     def _get_enriched(self, item):
-        log.debug("Issuing command %s", item)
         oper = getattr(self.api, item, None)
         if not (hasattr(oper, '__call__') and hasattr(oper, 'json')):
             raise AttributeError(
@@ -231,6 +248,7 @@ class BaseObject(object):
             """
             # Add id to param list
             kwargs.update(self.id_generator.get_params(self.json))
+            log.debug("Issuing command %s %s", item, kwargs)
             oper_ = oper
             if kwargs:
                 oper_ = partial(oper_, **kwargs)
@@ -243,7 +261,7 @@ class BaseObject(object):
 
     async def create(self, **k):
         res = await self._get_enriched('create')(**k)
-        type(self).active.add(res)
+        type(res).active.add(res)
         return res
         
         
@@ -257,13 +275,29 @@ class BaseObject(object):
         :param args: Arguments to pass to fn
         :param kwargs: Keyword arguments to pass to fn
         """
-        self.event_reg.setdefault(event_type, list()).append((fn, args, kwargs))
+        client = self.client
+        callback_obj = (fn, args, kwargs)
+        self.event_listeners.setdefault(event_type, list()).append(callback_obj)
+
+        class EventUnsubscriber(object):
+            """Class to allow events to be unsubscribed.
+            """
+
+            def close(self_):
+                """Unsubscribe the associated event callback.
+                """
+                if callback_obj in self.event_listeners[event_type]:
+                    self.event_listeners[event_type].remove(callback_obj)
+
+        return EventUnsubscriber()
+
 
     async def do_event(self, msg):
         """Run a message through this object's event queue/list"""
-        callbacks = self.event_reg.get(msg.type, []) + self.event_reg.get("*", [])
+        callbacks = self.event_listeners.get(msg.type, []) + self.event_listeners.get("*", [])
         for p, a, k in callbacks:
-            r = p(self, msg, *a, **k)
+            log.debug("RunCb:%s %s %s %s",self,p,a,k)
+            r = p(msg, *a, **k)
             if inspect.iscoroutine(r):
                 await r
 
@@ -281,11 +315,14 @@ class BaseObject(object):
         if self._queue is None:
             raise StopAsyncIteration
         if self._waiting:
+            self._waiting = False
             raise RuntimeError("Another task is waiting")
         try:
             self._waiting = True
             res = await self._queue.get()
         finally:
+            if not self._waiting:
+                raise RuntimeError("Another task has waited")
             self._waiting = False
         if res is None:
             self._queue = None
@@ -320,13 +357,28 @@ class Channel(BaseObject):
         self._is_up = trio.Event()
         self._dtmf = trio.Queue(20)
 
+    async def exit_hangup(self):
+        """Hang up on exit.
+
+        Override thuis to be a no-op if you want to be able to redirect the
+        channel to a non-Stasis dialplan entry.
+        """
+        await self.hangup()
+
     async def do_event(self, msg):
         if msg.type == "StasisStart":
             type(self).active.add(self)
         elif self not in type(self).active:
             return # unknown channel (program restarted?)
-        elif msg.type == "StasisEnd":
-            type(self).active.remove(self)
+        elif msg.type in {"StasisEnd", "ChannelDestroyed"}:
+            try:
+                await self.exit_hangup()
+            except Exception as exc:
+                log.info("SafeHangup of %s: %s", self, exc)
+            try:
+                type(self).active.remove(self)
+            except KeyError:
+                pass
             self._is_up.set()
         elif msg.type == "ChannelVarset":
             self.vars[msg.variable] = msg.value
@@ -336,14 +388,20 @@ class Channel(BaseObject):
             if self.bridge is msg.bridge:
                 self.bridge = None
         elif msg.type == "PlaybackStarted":
+            assert msg.playback not in self.playbacks
             self.playbacks.add(msg.playback)
         elif msg.type == "PlaybackFinished":
-            self.playbacks.remove(msg.playback)
-        elif msg.type == "ChannelHangupRequest":
+            try:
+                self.playbacks.remove(msg.playback)
+            except KeyError:
+                log.warning("%s not in %s", msg.playback, self)
+        elif msg.type in {"ChannelHangupRequest","ChannelConnectedLine"}:
             self._is_up.set()
         elif msg.type == "ChannelStateChange":
-            self._is_up.set()
-        elif msg.type in {"ChannelDtmfReceived","ChannelHangupRequest","ChannelConnectedLine"}:
+            log.debug("State:%s %s", self.state, self)
+            if self.state == "up":
+                self._is_up.set()
+        elif msg.type == "ChannelDtmfReceived":
             pass
         else:
             log.warn("Event not recognized: %s for %s", msg, self)
@@ -356,7 +414,7 @@ class Channel(BaseObject):
 
     async def __anext__(self):
         evt = await super().__anext__()
-        if evt.type in {"StasisEnd", "ChannelHangupRequest"}:
+        if evt.type in {"StasisEnd", "ChannelDestroyed"}:
             raise ChannelExit(evt)
         return evt
 
@@ -393,16 +451,32 @@ class Bridge(BaseObject):
             for pb in self.playbacks:
                 pb.bridge = msg.bridge
         elif msg.type == "ChannelEnteredBridge":
+            assert msg.channel not in self.channels
             self.channels.add(msg.channel)
         elif msg.type == "ChannelLeftBridge":
-            self.channels.remove(msg.channel)
+            try:
+                self.channels.remove(msg.channel)
+            except KeyError:
+                log.warning("%s not in %s", msg.channel, self)
         elif msg.type == "PlaybackStarted":
+            assert msg.playback not in self.playbacks
             self.playbacks.add(msg.playback)
         elif msg.type == "PlaybackFinished":
-            self.playbacks.remove(msg.playback)
+            try:
+                self.playbacks.remove(msg.playback)
+            except KeyError:
+                log.warning("%s not in %s", msg.playback, self)
         else:
             log.warn("Event not recognized: %s for %s", msg, self)
         await super().do_event(msg)
+
+        for ch in self.channels:
+            if ch.id not in msg._orig_msg['bridge']['channels']:
+                log.warn("%s: %s not listed",self,ch)
+        for ch in msg._orig_msg['bridge']['channels']:
+            ch = Channel(self.client, id=ch)
+            if ch not in self.channels:
+                log.warn("%s: %s not known",self,ch)
 
     async def __anext__(self):
         evt = await super().__anext__()
@@ -584,14 +658,15 @@ async def promote(client, resp, operation_json):
     :type  operation_json: dict
     :return:
     """
-    log.debug("resp1=%s",resp)
     if resp.status == HTTPNoContent.status_code:
+        log.debug("resp=%s",resp)
         return None
     res = await trio_asyncio.run_asyncio(resp.text)
     if res == "":
+        log.debug("resp=%s",resp)
         return None
     resp_json = json.loads(res)
-    log.debug("resp2=%s",resp_json)
+    log.debug("resp=%s",resp_json)
 
     response_class = operation_json['responseClass']
     is_list = False

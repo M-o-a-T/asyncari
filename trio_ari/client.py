@@ -85,13 +85,13 @@ class Client:
         return State(ch)
 
     def __enter__(self):
-        raise RunimeError("You need to call 'async with …'.")
+        raise RuntimeError("You need to call 'async with …'.")
 
     def __exit__(self, *tb):
-        raise RunimeError("You need to call 'async with …'.")
+        raise RuntimeError("You need to call 'async with …'.")
 
     def __iter__(self):
-        raise RunimeError("You need to call 'async for …'.")
+        raise RuntimeError("You need to call 'async for …'.")
 
     def __aiter__(self):
         return ClientReader(self)
@@ -141,7 +141,7 @@ class Client:
                 continue # ignore
             msg_json = json.loads(msg.data)
             if not isinstance(msg_json, dict) or 'type' not in msg_json:
-                log.error("Invalid event: %s" % msg)
+                log.error("Invalid event: %s", msg)
                 continue
             await self.process_ws(msg_json)
 
@@ -161,8 +161,6 @@ class Client:
             for (name, api) in self.swagger.resources.items()}
         self.websockets = set()
         self.event_listeners = {}
-        self.exception_handler = \
-            lambda ex: log.exception("Event listener threw exception")
 
     def __getattr__(self, item):
         """Exposes repositories as fields of the client.
@@ -200,11 +198,12 @@ class Client:
         msg = EventMessage(self, msg)
 
         # First, do the traditional listeners
+        log.debug("***** Dispatch:%s", msg)
         listeners = list(self.event_listeners.get(msg['type'], [])) \
                     + list(self.event_listeners.get('*', []))
         for listener in listeners:
             callback, args, kwargs = listener
-            log.debug("cb_type=%s" % type(callback))
+            log.debug("  to: %s %s %s", callback, args, kwargs)
             args = args or ()
             kwargs = kwargs or {}
             cb = callback(msg, *args, **kwargs)
@@ -224,11 +223,8 @@ class Client:
         :param kwargs: Keyword arguments to pass to event_cb
         """
         listeners = self.event_listeners.setdefault(event_type, list())
-        for cb in listeners:
-            if event_cb == cb[0]:
-                listeners.remove(cb)
         callback_obj = (event_cb, args, kwargs)
-        log.debug("event_cb=%s" % event_cb)
+        log.debug("event_cb %s=%s", event_type, event_cb)
         listeners.append(callback_obj)
         client = self
 
@@ -261,7 +257,7 @@ class Client:
         :param kwargs: Keyword arguments to pass to event_cb
         """
         # Find the associated model from the Swagger declaration
-        log.debug("On object event %s %s %s %s"%(event_type, event_cb, factory_fn, model_id))
+        log.debug("On object event %s %s %s %s", event_type, event_cb, factory_fn, model_id)
         event_model = self.event_models.get(event_type)
         if not event_model:
             raise ValueError("Cannot find event model '%s'" % event_type)
@@ -436,10 +432,12 @@ class EventMessage:
         return "<%s %s>" % (self.__class__.__name__, self.type)
 
     async def _send_event(self):
+        log.debug("PROCESS %s",self)
         for k in self._orig_msg.keys():
             v = getattr(self, k)
             do_ev = getattr(v, 'do_event', None)
             if do_ev is not None:
+                log.debug("  process %s",v)
                 await do_ev(self)
 
     def __getitem__(self, k):
@@ -467,5 +465,4 @@ class ClientReader:
         if self.link is not None:
             self.link.close()
             self.link = None
-        
 
