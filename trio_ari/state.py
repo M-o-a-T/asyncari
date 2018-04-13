@@ -19,7 +19,23 @@ __all__ = ["ToplevelChannelstate", "Channelstate", "Bridgestate", "HangupBridges
 
 _StartEvt = "_StartEvent"
 
+CAUSE_MAP = {
+	1: "congestion",
+	2: "congestion",
+	3: "congestion",
+	16: "normal",
+	17: "busy",
+	18: "no_answer",
+	19: "no_answer", # but ringing
+	21: "busy", # rejected
+	27: "congestion",
+	34: "congestion",
+	38: "congestion",
+}
+
 class _EvtHandler:
+	"""This is our generic state machine implementation."""
+
 	timeout = math.inf
 	result = None
 	_startup = True
@@ -46,7 +62,21 @@ class _EvtHandler:
 				except trio.TooSlowError:
 					await evt.self.on_timeout()
 
+	async def _dispatch(self, evt):
+		"""Dispatch a single event.
+
+		By default, call ``self.on_EventName(evt)``.
+		"""
+		typ = evt.type
+		try:
+			handler = getattr(self, 'on_'+typ)
+		except AttributeError:
+			log.warn("Unhandled event %s on %s", evt, self)
+		else:
+			await handler(evt)
+
 	def _repr(self):
+		"""List of attribute+value pairs to include in ``repr``."""
 		res = []
 		if self._src:
 			res.append((self._src, getattr(self,self._src)))
@@ -63,15 +93,14 @@ class _EvtHandler:
 
 	async def on_timeout(self):
 		"""Called when no event arrives after ``self.timeout`` seconds.
-		Raises :class:`EventTimeout` when the timeout isn't set to
-		:item:`math.inf`..
+		Raises :class:`EventTimeout`.
 		"""
 		raise EventTimeout(self)
 
 	async def run(self):
 		"""Process events arriving on this channel.
 		
-		By default, call :meth:`dispatch` with each event.
+		By default, call :meth:`_dispatch` with each event.
 		"""
 		log.debug("StartRun %s", self)
 		async for evt in self._evt(self, getattr(self, self._src)):
@@ -80,38 +109,14 @@ class _EvtHandler:
 				if evt is _StartEvt:
 					await self.on_start()
 				else:
-#					if "HangupBridgeState" in str(self) and evt.type == "ChannelEnteredBridge":
-#						import pdb;pdb.set_trace()
-					await self.dispatch(evt)
+					await self._dispatch(evt)
 			except StopAsyncIteration:
 				log.debug("StopRun %s", self)
 				return self.result
 
 
-class ChannelState(_EvtHandler):
-	_src = 'channel'
-	def __init__(self, channel):
-		self.channel = channel
-		self.client = self.channel.client
-
-	def _repr(self):
-		res=super()._repr()
-		res.append(("ch_state",self.channel.state))
-		return res
-		
-	async def dispatch(self, evt):
-		"""Dispatch a single event.
-
-		By default, call ``on_EventName(evt)``.
-		If the event name starts with "Channel", this prefix is stripped.
-		"""
-		typ = evt.type
-		try:
-			handler = getattr(self, 'on_'+typ)
-		except AttributeError:
-			log.warn("Unhandled event %s on %s", evt, self.channel)
-		else:
-			await handler(evt)
+class _DTMFevtHandler(_EvtHandler):
+	"""Extension to dispatch DTMF tones."""
 
 	async def on_ChannelDtmfReceived(self, evt):
 		"""Dispatch DTMF events.
@@ -138,9 +143,22 @@ class ChannelState(_EvtHandler):
 			await proc(evt)
 
 
-class BridgeState(_EvtHandler):
+class ChannelState(_DTMFevtHandler):
+	"""This is the generic state machine for a single channel."""
+	_src = 'channel'
+	def __init__(self, channel):
+		self.channel = channel
+		self.client = self.channel.client
+
+	def _repr(self):
+		res=super()._repr()
+		res.append(("ch_state",self.channel.state))
+		return res
+
+
+class BridgeState(_DTMFevtHandler):
 	"""
-	Basic state machine for bridges.
+	This is the generic state machine for a bridge.
 
 	This bridge raises BridgeExit when it terminates.
 	"""
@@ -160,66 +178,72 @@ class BridgeState(_EvtHandler):
 		return s
 
 	async def add(self, channel):
+		"""Add a new channel to this bridge."""
 		await self._add_monitor(channel)
 		await self.bridge.addChannel(channel=channel.id)
+		await channel.wait_bridged(self.bridge)
 		
-	async def added(self, channel):
+	async def on_channel_added(self, channel):
+		"""Hook, called after a channel has been added successfully."""
 		pass
 
 	async def remove(self, channel):
+		"""Remove a channel from this bridge."""
 		await self.bridge.removeChannel(channel=channel.id)
 		
-	async def dial(self, State=ChannelState, **kw):
-		"""
-		Originate a call, add the called channel to this bridge.
-		"""
+	async def _dial(self, State=ChannelState, **kw):
+		"""Helper to start a call"""
 		ch_id = self.client.generate_id()
 		log.debug("DIAL %s",kw.get('endpoint', 'unknown'))
 		ch = await self.client.channels.originate(channelId=ch_id, app=self.client._app, appArgs=["dialed", kw.get('endpoint', 'unknown')], **kw)
 		self.calls.add(ch)
-		log.debug("DIAL DONE %s",ch)
+		ch.remember()
 		await self._add_monitor(ch)
+		return ch
 
-		s = State(ch)
-		self.client.nursery.start_soon(s.run)
-		return s
+	async def dial(self, State=None, **kw):
+		"""
+		Originate a call. Add the called channel to this bridge.
+
+		State: the state machine (factory) to run the new channel under.
+
+		Returns a state instance (if given), or the channel (if not).
+		"""
+		
+		ch = await self._dial(**kw)
+		try:
+			await ch.wait_up()
+		except BaseException:
+			with trio.move_on_after(2) as s:
+				s.shield = True
+				await ch.hang_up()
+				await ch.wait_down()
+			raise
+
+		if State is None:
+			return ch
+		else:
+			s = State(ch)
+			await self.client.nursery.start(s.main)
+			return s
 
 	async def on_StasisStart(self, evt):
+		"""Hook for channel creation. Call when overriding!"""
 		ch = evt.channel
 		await self.bridge.addChannel(channel=ch.id)
 #		if evt.channel not in self.bridge.channels:
 #			await self.bridge.addChannel(channel=[evt.channel.id])
 
-	async def on_ChannelConnectedLine(self, evt):
-		"""Default: call .on_connected()"""
-		ch = evt.channel
-		if ch not in self.channels:
-			await self.add(ch)
-		await self.on_connected(ch)
-
 	async def on_connected(self, channel):
-		"""Called when a channel is picked up.
-		Default: answer all channels that are still in RING
+		"""Callback when an outgoing call is answered.
+		Default: answer all (incoming) channels that are still in RING
 		"""
 		for ch in self.bridge.channels:
 			if ch.state == "Ring":
 				await ch.answer()
 
-	async def dispatch(self, evt):
-		"""Dispatch a single event.
-
-		By default, call ``on_EventName(evt)``.
-		If the event name starts with "Bridge", this prefix is stripped.
-		"""
-		typ = evt.type
-		try:
-			handler = getattr(self, 'on_'+typ)
-		except AttributeError:
-			log.warn("Unhandled event %s on %s", evt, self.channel)
-		else:
-			await handler(evt)
-
 	async def on_timeout(self):
+		"""Timeout handler. Default: terminate the state machine."""
 		raise StopAsyncIteration
 
 	async def on_BridgeMerged(self, evt):
@@ -233,17 +257,19 @@ class BridgeState(_EvtHandler):
 			self.calls.remove(ch)
 		except KeyError:
 			pass
-		await self.added(ch)
+		await self.on_channel_added(ch)
 		if ch.state == "Up":
 			await self.on_connected(ch)
 
+	async def on_ChannelLeftBridge(self, evt):
+		await self._chan_dead(evt)
+	
 	async def _add_monitor(self, ch):
 		if not hasattr(ch,'_bridge_evt'):
-			log.debug("ENTER %d %s %s",id(ch),self,ch)
 			ch._bridge_evt = ch.on_event("*", self._chan_evt)
-			log.debug("ENTERED %s",ch._bridge_evt)
 
 	async def _chan_evt(self, evt):
+		"""Dispatcher for forwarding a channel's events to this bridge."""
 		if getattr(evt,'bridge',None) is self:
 			log.debug("Dispatch hasBRIDGE:%s for %s",evt.type,self)
 			return # already calling us via regular dispatch
@@ -263,29 +289,44 @@ class BridgeState(_EvtHandler):
 		await self._chan_state_change(evt)
 
 	async def on_ChannelDestroyed(self, evt):
+		self._set_cause(evt)
 		await self._chan_dead(evt)
 
 	async def on_ChannelHangupRequest(self, evt):
+		self._set_cause(evt)
+		return  # TODO?
 		try:
-			await evt.channel.hangup()
+			await evt.channel.hang_up()
 		except Exception as exc:
 			log.warning("Hangup %s: %s", evt.channel, exc)
-		await self._chan_dead(evt)
+		# await self._chan_dead(evt)
 
-	async def on_ChannelLeftBridge(self, evt):
-		await self._chan_dead(evt)
-	
 	async def on_channel_end(self, ch, evt=None):
+		"""
+		The connection to this channel ended.
+
+		Overrideable, but do call ``await super().on_channel_end(ch,evt)`` first.
+		"""
 		try:
 			self.calls.remove(ch)
 		except KeyError:
 			pass
 
+	async def _set_cause(self, evt):
+		try:
+			cc = evt.cause
+		except AttributeError:
+			pass
+		else:
+			cc = CAUSE_MAP.get(cc,"normal")
+			for c in list(self.bridge.channels)+list(self.calls):
+				c.set_reason(cc)
+
 	async def _chan_dead(self, evt):
 		ch = evt.channel
+
 		if not hasattr(ch, '_bridge_evt'):
 			return
-		log.debug("LEAVE %s %s",self,ch)
 		ch._bridge_evt.close()
 		del ch._bridge_evt
 
@@ -299,7 +340,7 @@ class BridgeState(_EvtHandler):
 		if ch.state == "Up":
 			await self.on_connected(ch)
 
-	async def teardown(self, skip_ch=None, hangup_cause="normal"):
+	async def teardown(self, skip_ch=None, hangup_reason="normal"):
 		"""removes all channels from the bridge"""
 		if self._in_shutdown:
 			return
@@ -307,9 +348,9 @@ class BridgeState(_EvtHandler):
 
 		log.info("TEARDOWN %s %s",self,self.bridge.channels)
 		for ch in list(self.bridge.channels)+list(self.calls):
-			if hangup_cause:
+			if hangup_reason:
 				try:
-					await ch.hangup(reason=hangup_cause)
+					await ch.hang_up(reason=hangup_reason)
 				except Exception as exc:
 					log.info("%s gone: %s", ch, exc)
 			if ch is skip_ch:
@@ -354,24 +395,37 @@ class HangupBridgeState(BridgeState):
 	async def run(self):
 		try:
 			return await super().run()
+		except StateError:
+			await self.teardown()
 		except BridgeExit:
 			pass
 
+
 class ToplevelChannelState(ChannelState):
 	"""A channel state machine that unconditionally hangs up its channel on exception"""
-	async def run(self, task_status=trio.TASK_STATUS_IGNORED):
-		task_status.started()
-		try:
-			await super().run()
-		except ChannelExit:
-			pass
-		finally:
-			with trio.move_on_after(2) as s:
-				s.shield = True
-				try:
-					await self.channel.hangup()
-				except Exception as exc:
-					log.info("Channel %s gone: %s", self.channel, exc)
+	async def main(self, task_status=trio.TASK_STATUS_IGNORED):
+		"""Task for this state. Hangs up the channel on exit."""
+		with trio.open_cancel_scope() as scope:
+			self._scope = scope
+			task_status.started()
+			try:
+				await self.run()
+			except ChannelExit:
+				pass
+			except StateError:
+				pass
+			finally:
+				with trio.move_on_after(2) as s:
+					s.shield = True
+					try:
+						await self.channel.hang_up()
+						await self.channel.wait_down()
+					except Exception as exc:
+						log.info("Channel %s gone: %s", self.channel, exc)
+
+	async def hang_up(self, reason="normal"):
+		await self.channel.set_reason(reason)
+		self._scope.cancel()
 
 class OutgoingChannelState(ToplevelChannelState):
 	"""A channel state machine that waits for an initial StasisStart event before proceeding"""

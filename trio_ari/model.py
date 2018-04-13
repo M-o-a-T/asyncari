@@ -195,7 +195,6 @@ class BaseObject(object):
             self.json.update(json)
         if self.id is not None:
             assert client == self.client
-            log.debug("NEW Known %s",self)
             return
         if id is None:
             id = self.id_generator.id_as_str(json)
@@ -203,15 +202,29 @@ class BaseObject(object):
         self.api = getattr(self.client.swagger, self.api)
         self.id = id
         self.event_listeners = {}
+        self._changed = trio.Event()
         self._init()
-        log.debug("NEW Unknown %s",self)
 
     def _init(self):
         pass
 
+    async def wait_for(self, check):
+        while True:
+            r = check()
+            if r:
+                return r
+            await self._changed.wait()
+
+    def _has_changed(self):
+        if not self._changed.statistics().tasks_waiting:
+            return
+        c,self._changed = self._changed,trio.Event()
+        c.set()
+
     def remember(self):
         """
         Call this method after you created a persistent object.
+
         This will ensure that Python won't forget about it even if you
         don't keep a reference to it yourself.
         """
@@ -306,6 +319,9 @@ class BaseObject(object):
             # This is intentional: raise an error if the queue is full
             # instead of waiting forever and possibly deadlocking
 
+        # Finally trigger waiting checks
+        self._has_changed()
+
     def __aiter__(self):
         if self._queue is None:
             self._queue = trio.Queue(99)
@@ -349,37 +365,79 @@ class Channel(BaseObject):
     id_generator = DefaultObjectIdGenerator('channelId')
     api = "channels"
     bridge = None
+    _do_hangup = None
+    hangup_delay=0.3
+    _reason = None
+    _reason_seen = None
+
+    # last is better
+    REASONS = ( "congestion", "busy", "no_answer", "busy", "normal" )
 
     def _init(self):
         super()._init()
         self.playbacks = set()
         self.vars = {}
-        self._is_up = trio.Event()
         self._dtmf = trio.Queue(20)
 
-    async def exit_hangup(self):
+    async def set_reason(self, reason):
+        """Set the reason for hanging up."""
+        # TODO select the "best" reason, not the first
+        if reason not in self.REASONS:
+            raise RuntimeError("Reason '%s' unknown" % (reason,))
+        if self._reason is None:
+            self._reason = reason
+        elif self.REASONS.index(reason) > self.REASONS.index(self._reason):
+            self._reason = reason
+
+        self._reason = reason
+        if self._reason_seen is not None:
+            self._reason_seen.set()
+
+    async def hang_up(self, reason=None):
+        """Call this (and only this) to hang up a channel.
+
+        The actual hangup (or whatever) may happen asynchronously.
+        """
+        if self._do_hangup is not None:
+            return
+        self._do_hangup = True
+        if reason is not None:
+            self.set_reason(reason)
+        if self._reason is None:
+            self._reason_seen = trio.Event()
+        await self.client.nursery.start(self._hangup_task)
+
+    async def exit_hangup(self, reason="normal"):
         """Hang up on exit.
 
-        Override thuis to be a no-op if you want to be able to redirect the
-        channel to a non-Stasis dialplan entry.
+        Override this to be a no-op if you want to redirect the
+        channel to a non-Stasis dialplan entry instead.
         """
-        await self.hangup()
+        await self.hangup(reason=reason)
+
+    async def _hangup_task(self, task_status=trio.TASK_STATUS_IGNORED):
+        task_status.started()
+        if self._reason is None:
+            with trio.move_on_after(self.hangup_delay):
+                await self._reason_seen.wait()
+        if not self._do_hangup:
+            return
+        self._do_hangup = False
+
+        try:
+            await self.exit_hangup(reason=(self._reason or "normal"))
+        except Exception as exc:
+            log.warning("Hangup %s: %s", self, exc)
 
     async def do_event(self, msg):
         if msg.type == "StasisStart":
             type(self).active.add(self)
-        elif self not in type(self).active:
-            return # unknown channel (program restarted?)
         elif msg.type in {"StasisEnd", "ChannelDestroyed"}:
-            try:
-                await self.exit_hangup()
-            except Exception as exc:
-                log.info("SafeHangup of %s: %s", self, exc)
             try:
                 type(self).active.remove(self)
             except KeyError:
                 pass
-            self._is_up.set()
+            self._do_hangup = False
         elif msg.type == "ChannelVarset":
             self.vars[msg.variable] = msg.value
         elif msg.type == "ChannelEnteredBridge":
@@ -395,12 +453,13 @@ class Channel(BaseObject):
                 self.playbacks.remove(msg.playback)
             except KeyError:
                 log.warning("%s not in %s", msg.playback, self)
-        elif msg.type in {"ChannelHangupRequest","ChannelConnectedLine"}:
-            self._is_up.set()
+        elif msg.type == "ChannelHangupRequest":
+            pass
+        elif msg.type == "ChannelConnectedLine":
+            pass
         elif msg.type == "ChannelStateChange":
             log.debug("State:%s %s", self.state, self)
-            if self.state == "up":
-                self._is_up.set()
+            pass
         elif msg.type == "ChannelDtmfReceived":
             pass
         else:
@@ -408,9 +467,24 @@ class Channel(BaseObject):
         await super().do_event(msg)
 
     async def wait_up(self):
-        await self._is_up.wait()
-        if self.json['state'].lower() != "up":
-            raise StateError(self)
+        def chk():
+            if self._do_hangup is not None:
+                raise StateError(self)
+            return self.state == "Up"
+        await self.wait_for(chk)
+
+    async def wait_bridged(self, bridge=None):
+        def chk():
+            if self._do_hangup is not None:
+                raise StateError(self)
+            if bridge is None:
+                return self.bridge is not None
+            else:
+                return self.bridge is bridge
+        await self.wait_for(chk)
+
+    async def wait_down(self):
+        await self.wait_for(lambda: self._do_hangup is False)
 
     async def __anext__(self):
         evt = await super().__anext__()
