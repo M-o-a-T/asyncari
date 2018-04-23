@@ -11,6 +11,7 @@ import trio
 import inspect
 
 from .model import ChannelExit, BridgeExit, EventTimeout, StateError
+from async_generator import asynccontextmanager
 
 import logging
 log = logging.getLogger(__name__)
@@ -170,13 +171,6 @@ class BridgeState(_DTMFevtHandler):
 		self.bridge = bridge
 		self.client = self.bridge.client
 
-	@classmethod
-	async def new(cls, client, type="mixing", **kw):
-		br = await client.bridges.create(type=type)
-		s = cls(br, **kw)
-		client.nursery.start_soon(s.run)
-		return s
-
 	async def add(self, channel):
 		"""Add a new channel to this bridge."""
 		await self._add_monitor(channel)
@@ -201,7 +195,7 @@ class BridgeState(_DTMFevtHandler):
 		await self._add_monitor(ch)
 		return ch
 
-	async def dial(self, State=None, **kw):
+	async def dial(self, **kw):
 		"""
 		Originate a call. Add the called channel to this bridge.
 
@@ -226,6 +220,26 @@ class BridgeState(_DTMFevtHandler):
 			s = State(ch)
 			await self.client.nursery.start(s.main)
 			return s
+
+	async def calling(self, State=None, timeout=None, **kw):
+		"""
+		Context manager for an outgoing call.
+
+		The context is entered as the call is established. It is
+		auto-terminated when the context ends.
+
+		Usage::
+
+			with bridge.calling(endpoint="SIP/foo/0123456789", timeout=60) as channel:
+				channel.play(media='sound:hello-world')
+
+		The timeout only applies to the call setup.
+
+		If a state machine (factory) is passed in, it will be instantiated
+		run during the call.
+
+		"""
+		return CallManager(self, State=State, timeout=timeout, **kw)
 
 	async def on_StasisStart(self, evt):
 		"""Hook for channel creation. Call when overriding!"""
@@ -363,6 +377,27 @@ class BridgeState(_DTMFevtHandler):
 		await self.bridge.destroy()
 
 
+class ToplevelBridgeState(BridgeState):
+	"""A bridge state suitable for an incoming channel.
+	"""
+	@asynccontextmanager
+	@classmethod
+	async def new(cls, client, type="mixing", **kw):
+		br = await client.bridges.create(type=type)
+		s = cls(br, **kw)
+		with trio.open_nursery() as n:
+			self.nursery = n
+			try:
+				await n.start(self.main)
+				yield self
+			finally:
+				await self.teardown()
+				n.cancel_scope.cancel()
+
+		client.nursery.start_soon(s.run)
+		return s
+		
+
 class HangupBridgeState(BridgeState):
 	"""A bridge controller that hangs up all channels and deletes the
 	bridge as soon as one channel leaves.
@@ -436,4 +471,36 @@ class OutgoingChannelState(ToplevelChannelState):
 			break
 		task_status.started()
 		await super().run()
+
+class CallManager:
+	state = None
+	channel = None
+
+	def __init__(self, bridge, State=None, timeout=None, **kw):
+		self.bridge = bridge
+		self.State = State
+		self.timeout = timeout
+		self.kw = kw
+	
+	async def __aenter__(self):
+		timeout = self.timeout
+		if timeout is None:
+			timeout = math.inf
+
+		with trio.fail_after(timeout):
+			self.channel = ch = self.bridge.dial(**self.kw)
+		if self.State is not None:
+			try:
+				self.state = state = self.State(ch)
+				await self.bridge.nursery.start(state.main)
+			except BaseException:
+				with trio.open_cancel_scope(shield=True):
+					await ch.hangup()
+				raise
+
+	async def __aexit__(self, *exc):
+		if self.state is None:
+			await self.state.hang_up()
+		else:
+			await self.channel.hang_up()
 
