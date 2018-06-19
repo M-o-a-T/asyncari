@@ -138,7 +138,7 @@ class _DTMFevtHandler(_EvtHandler):
 		if proc is None:
 			proc = getattr(self,'on_dtmf', None)
 		if proc is None:
-			log.info("Unhandled DTMF %s on %s", evt.digit, self.channel)
+			log.info("Unhandled DTMF %s on %s", evt.digit, self.ref)
 		else:
 			await proc(evt)
 
@@ -155,6 +155,9 @@ class ChannelState(_DTMFevtHandler):
 		res.append(("ch_state",self.channel.state))
 		return res
 
+	@property
+	def ref(self):
+		return self.channel
 
 class BridgeState(_DTMFevtHandler):
 	"""
@@ -169,6 +172,10 @@ class BridgeState(_DTMFevtHandler):
 	def __init__(self, bridge):
 		self.bridge = bridge
 		self.client = self.bridge.client
+
+	@property
+	def ref(self):
+		return self.bridge
 
 	@classmethod
 	async def new(cls, client, type="mixing", **kw):
