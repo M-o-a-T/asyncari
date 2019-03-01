@@ -10,7 +10,6 @@ import os
 import json
 import urllib
 import aiohttp
-import trio_asyncio
 import trio
 import trio_swagger11
 import trio_swagger11.client
@@ -60,7 +59,7 @@ class Client:
     async def __aexit__(self, *tb):
         with trio.fail_after(1) as scope:
             scope.shield=True
-            await trio_asyncio.run_asyncio(self.close)
+            await self.close()
 
     async def new_channel(self, State, endpoint, **kw):
         """Create a new channel. Keywords 'timeout' 'variables'
@@ -106,7 +105,7 @@ class Client:
             apps = ','.join(apps)
         else:
             self._app = apps.split(',',1)[0]
-        ws = await trio_asyncio.run_asyncio(partial(self.swagger.events.eventWebsocket, app=apps))
+        ws = await self.swagger.events.eventWebsocket(app=apps)
         self.websockets.add(ws)
 
         # For tests
@@ -123,11 +122,8 @@ class Client:
 
         :param ws: WebSocket to drain.
         """
-        while True:
-            msg = await trio_asyncio.run_asyncio(ws.receive)
-            if msg is None:
-                return ## EOF
-            elif msg.type in {aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING}:
+        async for msg in ws:
+            if msg.type in {aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING}:
                 break
             elif msg.type != aiohttp.WSMsgType.TEXT:
                 log.warning("Unknown JSON message type: %s", repr(msg))
@@ -139,7 +135,7 @@ class Client:
             await self.process_ws(msg_json)
 
     async def _init(self, RepositoryFactory=Repository):
-        await trio_asyncio.run_asyncio(self.swagger.init)
+        await self.swagger.init()
         # Extract models out of the events resource
         events = [api['api_declaration']
                   for api in self.swagger.api_docs['apis']

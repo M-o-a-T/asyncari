@@ -16,7 +16,6 @@ setup(
     packages=find_packages(),
     install_requires=[
         "trio",
-        "trio-asyncio",
         "trio_swagger11",
         "aiohttp",
     ],

@@ -12,7 +12,6 @@ enters the bridge, a tone is played to the bridge.
 #
 
 import trio
-import trio_asyncio
 import trio_ari
 import logging
 
@@ -78,5 +77,5 @@ async def main():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    trio_asyncio.run(main)
+    trio.run(main)
 

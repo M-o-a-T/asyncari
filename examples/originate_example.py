@@ -8,7 +8,6 @@
 # Copyright (c) 2013, Digium, Inc.
 #
 import trio_ari
-import trio_asyncio
 import trio
 import logging
 from trio_ari.state import ToplevelChannelState, HangupBridgeState
@@ -71,7 +70,7 @@ async def main():
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     try:
-        trio_asyncio.run(main)
+        trio.run(main)
     except KeyboardInterrupt:
         pass
 

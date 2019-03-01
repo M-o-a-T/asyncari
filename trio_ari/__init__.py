@@ -9,7 +9,6 @@ from trio_ari.client import Client
 from trio_swagger11.http_client import AsynchronousHttpClient, ApiKeyAuthenticator
 import urllib.parse
 import trio
-import trio_asyncio
 from async_generator import asynccontextmanager
 
 @asynccontextmanager
@@ -39,4 +38,4 @@ async def connect(base_url, apps, username, password):
                 finally:
                     nursery.cancel_scope.cancel()
     finally:
-        await trio_asyncio.run_asyncio(http_client.close)
+        await http_client.close()

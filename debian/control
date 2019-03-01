@@ -3,13 +3,16 @@ Maintainer: Matthias Urlichs <matthias@urlichs.de>
 Section: python
 Priority: optional
 Build-Depends: dh-python, python3-setuptools, python3-all, debhelper (>= 9),
-  python3-trio-asyncio,
+  python3-trio,
+  python3-trio-swagger11,
 Standards-Version: 3.9.6
 Homepage: https://github.com/M-o-a-T/trio-ari
 
 Package: python3-trio-ari
 Architecture: all
-Depends: ${misc:Depends}, ${python3:Depends}
+Depends: ${misc:Depends}, ${python3:Depends},
+  python3-trio,
+  python3-trio-swagger11,
 Description: A Trio-ified adapter for the Asterisk ARI interface
  Trio-ARI implements the Asterisk Resource Interface (ARI) for use by Trio
  programs.

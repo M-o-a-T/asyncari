@@ -12,7 +12,6 @@ to the channel. Press # to hang up, and * for a special message.
 #
 
 import trio_ari
-import trio_asyncio
 import trio
 import logging
 
@@ -84,4 +83,4 @@ async def main():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    trio_asyncio.run(main)
+    trio.run(main)

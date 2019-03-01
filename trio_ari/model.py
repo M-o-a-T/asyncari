@@ -25,7 +25,6 @@ from functools import partial
 from weakref import WeakValueDictionary
 from contextlib import suppress
 import trio
-import trio_asyncio
 import aiohttp
 
 from aiohttp.web_exceptions import HTTPNoContent
@@ -95,10 +94,8 @@ class Repository(object):
                     raise AttributeError(
                         "'%r' object has no attribute '%s'" % (self.p, self.item))
                 jsc = oper.json
-                if kwargs:
-                    oper = partial(oper, **kwargs)
                 try:
-                    res = await trio_asyncio.run_asyncio(oper)
+                    res = await oper(**kwargs)
                 except aiohttp.web_exceptions.HTTPBadRequest as exc:
                     raise OperationError(getattr(exc,'data',{'message':exc.body})['message']) from exc
                 res = await promote(self.p.client, res, jsc)
@@ -261,9 +258,7 @@ class BaseObject(object):
             kwargs.update(self.id_generator.get_params(self.json))
             log.debug("Issuing command %s %s", item, kwargs)
             oper_ = oper
-            if kwargs:
-                oper_ = partial(oper_, **kwargs)
-            resp = await trio_asyncio.run_asyncio(oper_)
+            resp = await oper_(**kwargs)
             enriched = await promote(self.client, resp, jsc)
             return enriched
 
@@ -753,7 +748,7 @@ async def promote(client, resp, operation_json):
     if resp.status == HTTPNoContent.status_code:
         log.debug("resp=%s",resp)
         return None
-    res = await trio_asyncio.run_asyncio(resp.text)
+    res = await resp.text()
     if res == "":
         log.debug("resp=%s",resp)
         return None

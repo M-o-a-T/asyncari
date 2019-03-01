@@ -12,7 +12,6 @@ are used to control the playback.
 
 import trio
 import trio_ari
-import trio_asyncio
 import sys
 import logging
 
@@ -75,5 +74,5 @@ async def main():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    trio_asyncio.run(main)
+    trio.run(main)
 
