@@ -11,7 +11,7 @@ import trio_ari
 import trio
 import logging
 
-from aiohttp.web_exceptions import HTTPError, HTTPNotFound, HTTPBadRequest
+from asks.errors import AsksException  # HTTPNotFound, HTTPBadRequest
 from pprint import pprint
 
 import os
@@ -47,7 +47,7 @@ async def safe_hangup(channel):
     """
     try:
         await channel.hangup()
-    except HTTPError as e:
+    except AsksException as e:
         # Ignore 404's, since channels can go away before we get to them
         if e.response.status_code != HTTPNotFound.status_code:
             raise

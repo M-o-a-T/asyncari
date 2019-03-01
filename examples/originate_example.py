@@ -13,7 +13,6 @@ import logging
 from trio_ari.state import ToplevelChannelState, HangupBridgeState
 from trio_ari.model import ChannelExit
 
-from aiohttp.web_exceptions import HTTPError, HTTPNotFound, HTTPBadRequest
 from pprint import pprint
 
 import os

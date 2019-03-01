@@ -17,7 +17,7 @@ setup(
     install_requires=[
         "trio",
         "trio_swagger11",
-        "aiohttp",
+        "asks",
     ],
     keywords=[
         "asterisk",

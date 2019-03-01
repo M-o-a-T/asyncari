@@ -25,9 +25,6 @@ from functools import partial
 from weakref import WeakValueDictionary
 from contextlib import suppress
 import trio
-import aiohttp
-
-from aiohttp.web_exceptions import HTTPNoContent
 
 log = logging.getLogger(__name__)
 
@@ -96,7 +93,7 @@ class Repository(object):
                 jsc = oper.json
                 try:
                     res = await oper(**kwargs)
-                except aiohttp.web_exceptions.HTTPBadRequest as exc:
+                except HTTPBadRequest as exc:
                     raise OperationError(getattr(exc,'data',{'message':exc.body})['message']) from exc
                 res = await promote(self.p.client, res, jsc)
                 return res
@@ -739,8 +736,8 @@ async def promote(client, resp, operation_json):
 
     :param client:  ARI client.
     :type  client:  client.Client
-    :param resp:    aiohttp client resonse.
-    :type  resp:    aiohttp.ClientResponse
+    :param resp:    asks response.
+    :type  resp:    asks.Response
     :param operation_json: JSON model from Swagger API.
     :type  operation_json: dict
     :return:

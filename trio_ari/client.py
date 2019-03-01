@@ -9,12 +9,12 @@ import re
 import os
 import json
 import urllib
-import aiohttp
 import trio
 import trio_swagger11
 import trio_swagger11.client
 import time
 import inspect
+from wsproto import ConnectionClosed, TextReceived
 from .model import CLASS_MAP
 
 from functools import partial
@@ -123,9 +123,9 @@ class Client:
         :param ws: WebSocket to drain.
         """
         async for msg in ws:
-            if msg.type in {aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING}:
+            if isinstance(msg, ConnectionClosed):
                 break
-            elif msg.type != aiohttp.WSMsgType.TEXT:
+            elif not isinstance(msg, TextReceived):
                 log.warning("Unknown JSON message type: %s", repr(msg))
                 continue # ignore
             msg_json = json.loads(msg.data)

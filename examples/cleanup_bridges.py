@@ -11,7 +11,6 @@ import trio_ari
 import trio
 import logging
 
-from aiohttp.web_exceptions import HTTPError, HTTPNotFound, HTTPBadRequest
 from pprint import pprint
 
 import os
