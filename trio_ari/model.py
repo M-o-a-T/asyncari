@@ -509,7 +509,7 @@ class Channel(BaseObject):
     async def __anext__(self):
         evt = await super().__anext__()
         if evt.type in {"StasisEnd", "ChannelDestroyed"}:
-            raise ChannelExit(evt)
+            raise StopAsyncIteration
         return evt
 
 class Bridge(BaseObject):
