@@ -24,14 +24,19 @@ ast_password = os.getenv("AST_PASS", 'asterisk')
 ast_app = os.getenv("AST_APP", 'hello')
 ast_outgoing = os.getenv("AST_OUTGOING", 'SIP/blink')
 
+# This demonstrates incoming DTMF recognition on both legs of a call
+
 class CallState(ToplevelChannelState):
-    pass
+    async def on_dtmf(self,evt):
+        print("*DTMF*EXT*",evt.digit)
 
 class CallerState(ToplevelChannelState):
     async def on_start(self):
         br = await HangupBridgeState.new(self.client, join_timeout=30)
         await br.add(self.channel)
         await br.dial(endpoint=ast_outgoing, State=CallState)
+    async def on_dtmf(self,evt):
+        print("*DTMF*INT*",evt.digit)
 
 
 def on_start(objs, event, client):
