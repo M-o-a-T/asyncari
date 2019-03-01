@@ -97,12 +97,13 @@ class _EvtHandler:
 		"""
 		raise EventTimeout(self)
 
-	async def run(self):
+	async def run(self, task_status=trio.TASK_STATUS_IGNORED):
 		"""Process events arriving on this channel.
 		
 		By default, call :meth:`_dispatch` with each event.
 		"""
 		log.debug("StartRun %s", self)
+		task_status.started()
 		async for evt in self._evt(self, getattr(self, self._src)):
 			try:
 				log.debug("EvtRun:%s %s", evt, self)
@@ -400,9 +401,9 @@ class HangupBridgeState(BridgeState):
 	async def on_timeout(self):
 		await self.teardown()
 
-	async def run(self):
+	async def run(self, task_status=trio.TASK_STATUS_IGNORED):
 		try:
-			return await super().run()
+			return await super().run(task_status=task_status)
 		except StateError:
 			await self.teardown()
 		except BridgeExit:
