@@ -17,7 +17,7 @@ setup(
     install_requires=[
         "trio",
         "trio-asyncio",
-        "aioswagger11",
+        "trio_swagger11",
         "aiohttp",
     ],
     keywords=[

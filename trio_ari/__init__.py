@@ -6,7 +6,7 @@
 """
 
 from trio_ari.client import Client
-from aioswagger11.http_client import AsynchronousHttpClient, ApiKeyAuthenticator
+from trio_swagger11.http_client import AsynchronousHttpClient, ApiKeyAuthenticator
 import urllib.parse
 import trio
 import trio_asyncio

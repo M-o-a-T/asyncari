@@ -12,21 +12,13 @@ import urllib
 import aiohttp
 import trio_asyncio
 import trio
-import aioswagger11
+import trio_swagger11
+import trio_swagger11.client
+import time
 import inspect
 from .model import CLASS_MAP
 
 from functools import partial
-
-import logging
-log = logging.getLogger(__name__)
-
-__all__ = ["Client"]
-
-
-
-import aioswagger11.client
-import time
 
 from .model import Repository
 from .model import Channel, Bridge, Playback, LiveRecording, StoredRecording, Endpoint, DeviceState, Sound
@@ -34,6 +26,7 @@ from .model import Channel, Bridge, Playback, LiveRecording, StoredRecording, En
 import logging
 log = logging.getLogger(__name__)
 
+__all__ = ["Client"]
 
 class Client:
     """Async ARI Client object.
@@ -48,7 +41,7 @@ class Client:
         self.nursery = nursery
         self._apps = apps
         url = urllib.parse.urljoin(base_url, "ari/api-docs/resources.json")
-        self.swagger = aioswagger11.client.SwaggerClient(
+        self.swagger = trio_swagger11.client.SwaggerClient(
             http_client=http_client, url=url)
         self.class_map = CLASS_MAP.copy()
         tm = time.time()
