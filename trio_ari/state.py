@@ -141,7 +141,9 @@ class _DTMFevtHandler(_EvtHandler):
 		if proc is None:
 			log.info("Unhandled DTMF %s on %s", evt.digit, self.ref)
 		else:
-			await proc(evt)
+			p = proc(evt)
+			if inspect.iscoroutine(p):
+				await p
 
 
 class ChannelState(_DTMFevtHandler):
