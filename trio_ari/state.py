@@ -197,6 +197,7 @@ class BridgeState(_DTMFevtHandler):
 	async def remove(self, channel):
 		"""Remove a channel from this bridge."""
 		await self.bridge.removeChannel(channel=channel.id)
+		await channel.wait_bridged(None)
 		
 	async def _dial(self, State=ChannelState, **kw):
 		"""Helper to start a call"""

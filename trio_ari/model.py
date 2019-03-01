@@ -474,6 +474,11 @@ class Channel(BaseObject):
         await self.wait_for(chk)
 
     async def wait_bridged(self, bridge=None):
+        """\
+            Wait for the channel to be bridged to @bridge.
+
+            if None, wait for the channel to be connected to any bridge.
+            """
         def chk():
             if self._do_hangup is not None:
                 raise StateError(self)
@@ -481,6 +486,21 @@ class Channel(BaseObject):
                 return self.bridge is not None
             else:
                 return self.bridge is bridge
+        await self.wait_for(chk)
+
+    async def wait_not_bridged(self, bridge=None):
+        """\
+            Wait for the channel to no longer be bridged to @bridge.
+
+            if None, wait for the channel to be not connected to any bridge.
+            """
+        def chk():
+            if self._do_hangup is not None:
+                raise StateError(self)
+            if bridge is None:
+                return self.bridge is None
+            else:
+                return self.bridge is not bridge
         await self.wait_for(chk)
 
     async def wait_down(self):
