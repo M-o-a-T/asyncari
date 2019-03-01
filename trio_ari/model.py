@@ -216,8 +216,6 @@ class BaseObject(object):
             await self._changed.wait()
 
     def _has_changed(self):
-        if not self._changed.statistics().tasks_waiting:
-            return
         c,self._changed = self._changed,trio.Event()
         c.set()
 
