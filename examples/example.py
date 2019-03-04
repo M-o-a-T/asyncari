@@ -15,6 +15,7 @@ import trio_ari
 from trio_ari.state import ToplevelChannelState
 import trio
 import logging
+import asks
 
 import os
 ast_url = os.getenv("AST_URL", 'http://localhost:8088/')
@@ -40,7 +41,10 @@ class State(ToplevelChannelState):
 
     async def on_PlaybackFinished(self, evt):
         if self.do_hang:
-            await self.channel.continueInDialplan()
+            try:
+                await self.channel.continueInDialplan()
+            except asks.errors.BadStatus:
+                pass
         
 async def on_start(objs, event, client):
     
