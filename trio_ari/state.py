@@ -352,7 +352,7 @@ class BridgeState(_DTMFevtHandler):
 		else:
 			cc = CAUSE_MAP.get(cc,"normal")
 			for c in list(self.bridge.channels)+list(self.calls):
-				c.set_reason(cc)
+				await c.set_reason(cc)
 
 	async def _chan_dead(self, evt):
 		ch = evt.channel

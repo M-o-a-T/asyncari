@@ -392,7 +392,7 @@ class Channel(BaseObject):
             return
         self._do_hangup = True
         if reason is not None:
-            self.set_reason(reason)
+            await self.set_reason(reason)
         if self._reason is None:
             self._reason_seen = trio.Event()
         await self.client.nursery.start(self._hangup_task)
