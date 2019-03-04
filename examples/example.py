@@ -53,6 +53,7 @@ async def on_start(objs, event, client):
     :param event: Event.
     """
     channel = objs['channel']
+    await trio.sleep(0.5)
     await channel.answer()
     await client.nursery.start(State(channel).run)
 
