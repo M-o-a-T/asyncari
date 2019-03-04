@@ -28,6 +28,7 @@ import trio
 
 log = logging.getLogger(__name__)
 
+NO_CONTENT = 204
 
 class StateError(RuntimeError):
     """The expected or waited-for state didn't occur"""
@@ -742,10 +743,10 @@ async def promote(client, resp, operation_json):
     :type  operation_json: dict
     :return:
     """
-    if resp.status == HTTPNoContent.status_code:
+    if resp.status_code == NO_CONTENT:
         log.debug("resp=%s",resp)
         return None
-    res = await resp.text()
+    res = resp.text
     if res == "":
         log.debug("resp=%s",resp)
         return None

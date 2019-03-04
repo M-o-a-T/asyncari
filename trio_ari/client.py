@@ -14,7 +14,7 @@ import trio_swagger11
 import trio_swagger11.client
 import time
 import inspect
-from wsproto import ConnectionClosed, TextReceived
+from wsproto.events import CloseConnection, TextMessage
 from .model import CLASS_MAP
 
 from functools import partial
@@ -123,9 +123,9 @@ class Client:
         :param ws: WebSocket to drain.
         """
         async for msg in ws:
-            if isinstance(msg, ConnectionClosed):
+            if isinstance(msg, CloseConnection):
                 break
-            elif not isinstance(msg, TextReceived):
+            elif not isinstance(msg, TextMessage):
                 log.warning("Unknown JSON message type: %s", repr(msg))
                 continue # ignore
             msg_json = json.loads(msg.data)
