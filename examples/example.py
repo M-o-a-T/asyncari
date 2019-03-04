@@ -18,7 +18,9 @@ import logging
 import asks
 
 import os
-ast_url = os.getenv("AST_URL", 'http://localhost:8088/')
+ast_host = os.getenv("AST_HOST", 'localhost')
+ast_port = int(os.getenv("AST_ARI_PORT", 8088))
+ast_url = os.getenv("AST_URL", 'http://%s:%d/'%(ast_host,ast_port))
 ast_username = os.getenv("AST_USER", 'asterisk')
 ast_password = os.getenv("AST_PASS", 'asterisk')
 ast_app = os.getenv("AST_APP", 'hello')
