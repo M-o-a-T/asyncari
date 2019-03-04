@@ -162,7 +162,7 @@ class BaseObject(object):
     cache = None
     active = None
     id = None
-    _queue = None
+    _queue_send, _queue_recv = None, None
     json = None
     api = None
     _waiting = False  # protect against re-entering the event iterator
@@ -305,8 +305,8 @@ class BaseObject(object):
             if inspect.iscoroutine(r):
                 await r
 
-        if self._queue is not None:
-            self._queue.put_nowait(msg)
+        if self._queue_send is not None:
+            self._queue_send.send_nowait(msg)
             # This is intentional: raise an error if the queue is full
             # instead of waiting forever and possibly deadlocking
 
@@ -314,34 +314,33 @@ class BaseObject(object):
         self._has_changed()
 
     def __aiter__(self):
-        if self._queue is None:
-            self._queue = trio.Queue(99)
+        if self._queue_send is None:
+            self._queue_send,self._queue_recv = trio.open_memory_channel(99)
         return self
 
     async def __anext__(self):
-        if self._queue is None:
+        if self._queue_recv is None:
             raise StopAsyncIteration
         if self._waiting:
             self._waiting = False
             raise RuntimeError("Another task is waiting")
         try:
             self._waiting = True
-            res = await self._queue.get()
+            res = await self._queue_recv.receive()
+        except StopAsyncIteration:
+            self._queue = None
+            raise StopAsyncIteration
         finally:
             if not self._waiting:
                 raise RuntimeError("Another task has waited")
             self._waiting = False
-        if res is None:
-            self._queue = None
-            raise StopAsyncIteration
         return res
 
     async def aclose(self):
         """No longer queue events"""
-        if self._queue is not None:
-            with suppress(trio.WouldBlock):
-                self._queue.put_nowait(None)
-        self._queue = None
+        if self._queue_send is not None:
+            self._queue_send.close()
+            self._queue_send = None
 
 
 class Channel(BaseObject):
@@ -368,7 +367,7 @@ class Channel(BaseObject):
         super()._init()
         self.playbacks = set()
         self.vars = {}
-        self._dtmf = trio.Queue(20)
+        #self._dtmf_send, self._dtmf_recv = trio.open_memory_channel(20)
 
     async def set_reason(self, reason):
         """Set the reason for hanging up."""

@@ -440,15 +440,15 @@ class ClientReader:
     link = None
     def __init__(self, client):
         self.client = client
-        self.queue = trio.Queue(999)
+        self.send_channel,self.recv_channel = trio.open_memory_channel(999)
 
     async def __anext__(self):
         if self.link is None:
             self.link = self.client.on_event('*', self._queue)
-        return await self.queue.get()
+        return await self.recv_channel.receive()
 
     async def _queue(self, msg):
-        await self.queue.put(msg)
+        await self.send_channel.send(msg)
 
     async def aclose(self):
         if self.link is not None:
