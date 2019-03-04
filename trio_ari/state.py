@@ -321,12 +321,11 @@ class BridgeState(_DTMFevtHandler):
 		await self._chan_state_change(evt)
 
 	async def on_ChannelDestroyed(self, evt):
-		self._set_cause(evt)
+		await self._set_cause(evt)
 		await self._chan_dead(evt)
 
 	async def on_ChannelHangupRequest(self, evt):
-		self._set_cause(evt)
-		return  # TODO?
+		await self._set_cause(evt)
 		try:
 			await evt.channel.hang_up()
 		except Exception as exc:
