@@ -32,12 +32,11 @@ class CallState(ToplevelChannelState):
 
 class CallerState(ToplevelChannelState):
     async def on_start(self):
-        br = await HangupBridgeState.new(self.client, join_timeout=30)
-        await br.add(self.channel)
-        await br.dial(endpoint=ast_outgoing, State=CallState)
+        async with HangupBridgeState.new(self.client, join_timeout=30) as br:
+            await br.add(self.channel)
+            await br.dial(endpoint=ast_outgoing, State=CallState)
     async def on_dtmf(self,evt):
         print("*DTMF*INT*",evt.digit)
-
 
 def on_start(objs, event, client):
     # Don't process our own dial
