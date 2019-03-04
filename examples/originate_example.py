@@ -58,7 +58,7 @@ async def _on_start(objs, event, client):
     # Answer and put in the holding bridge
     incoming = objs['channel']
     cs = CallerState(incoming)
-    await cs.main()
+    await cs.run()
 
 async def main():
     async with trio_ari.connect(ast_url, ast_app, ast_username,ast_password) as client:

@@ -213,7 +213,7 @@ class BridgeState(_DTMFevtHandler):
 		await self._add_monitor(ch)
 		return ch
 
-	async def dial(self, **kw):
+	async def dial(self, State=None, **kw):
 		"""
 		Originate a call. Add the called channel to this bridge.
 
@@ -236,7 +236,7 @@ class BridgeState(_DTMFevtHandler):
 			return ch
 		else:
 			s = State(ch)
-			await self.client.nursery.start(s.main)
+			await self.client.nursery.start(s.run)
 			return s
 
 	async def calling(self, State=None, timeout=None, **kw):
@@ -400,19 +400,17 @@ class ToplevelBridgeState(BridgeState):
 	"""
 	@classmethod
 	@asynccontextmanager
-	async def new(cls, client, type="mixing", **kw):
+	async def new(cls, client, nursery=None, type="mixing", **kw):
 		br = await client.bridges.create(type=type)
 		s = cls(br, **kw)
-		async with trio.open_nursery() as n:
-			s.nursery = n
-			try:
-				await n.start(s.main)
-				yield s
-			finally:
-				await s.teardown()
-				n.cancel_scope.cancel()
+		s.nursery = nursery or client.nursery
+		try:
+			await s.nursery.start(s.run)
+			yield s
+		finally:
+			await s.teardown()
+			# s.nursery.cancel_scope.cancel()
 
-		client.nursery.start_soon(s.run)
 		return
 		
 
@@ -456,13 +454,12 @@ class HangupBridgeState(ToplevelBridgeState):
 
 class ToplevelChannelState(ChannelState):
 	"""A channel state machine that unconditionally hangs up its channel on exception"""
-	async def main(self, task_status=trio.TASK_STATUS_IGNORED):
+	async def run(self, task_status=trio.TASK_STATUS_IGNORED):
 		"""Task for this state. Hangs up the channel on exit."""
 		with trio.open_cancel_scope() as scope:
 			self._scope = scope
-			task_status.started()
 			try:
-				await self.run()
+				await super().run(task_status=task_status)
 			except ChannelExit:
 				pass
 			except StateError:
@@ -474,7 +471,7 @@ class ToplevelChannelState(ChannelState):
 						await self.channel.hang_up()
 						await self.channel.wait_down()
 					except Exception as exc:
-						log.info("Channel %s gone: %s", self.channel, exc)
+						log.info("Channel %s gone: %s", self.channel, exc, exc_info=exc)
 
 	async def hang_up(self, reason="normal"):
 		await self.channel.set_reason(reason)
