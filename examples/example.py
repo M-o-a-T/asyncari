@@ -9,6 +9,7 @@ to the channel. Press # to hang up, and * for a special message.
 
 #
 # Copyright (c) 2013, Digium, Inc.
+# Copyright (c) 2018, Matthias Urlichs
 #
 
 import trio_ari

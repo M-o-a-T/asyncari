@@ -1,15 +1,15 @@
 #!/usr/bin/python3
 
-"""Example demonstrating ARI channel origination.
-
+"""This program removes unused bridges.
 """
 
 #
-# Copyright (c) 2013, Digium, Inc.
+# Copyright (c) 2018, Matthias Urlichs
 #
 import trio_ari
 import trio
 import logging
+logger = logging.getLogger(__name__)
 
 from pprint import pprint
 
@@ -29,6 +29,7 @@ async def clean_bridges(client):
     for b in await client.bridges.list():
         if b.channels:
             continue
+        logger.info("REMOVE: %r",b)
         await b.destroy()
 
 async def main():

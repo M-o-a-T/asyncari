@@ -1,11 +1,13 @@
 #!/usr/bin/python3
 
-"""Example demonstrating ARI channel origination.
+"""Example demonstrating ARI channel origination. This will dial an
+endpoint when a Stasis call arrives, and connect the call.
 
 """
 
 #
 # Copyright (c) 2013, Digium, Inc.
+# Copyright (c) 2018, Matthias Urlichs
 #
 import trio_ari
 import trio
