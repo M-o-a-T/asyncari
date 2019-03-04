@@ -327,9 +327,6 @@ class BaseObject(object):
         try:
             self._waiting = True
             res = await self._queue_recv.receive()
-        except StopAsyncIteration:
-            self._queue = None
-            raise StopAsyncIteration
         finally:
             if not self._waiting:
                 raise RuntimeError("Another task has waited")
@@ -341,6 +338,7 @@ class BaseObject(object):
         if self._queue_send is not None:
             self._queue_send.close()
             self._queue_send = None
+            self._queue_recv = None
 
 
 class Channel(BaseObject):
@@ -361,7 +359,7 @@ class Channel(BaseObject):
     _reason_seen = None
 
     # last is better
-    REASONS = ( "congestion", "busy", "no_answer", "busy", "normal" )
+    REASONS = ( "congestion", "no_answer", "busy", "normal" )
 
     def _init(self):
         super()._init()
@@ -403,7 +401,7 @@ class Channel(BaseObject):
         Override this to be a no-op if you want to redirect the
         channel to a non-Stasis dialplan entry instead.
         """
-        await self.hangup(reason=reason)
+        await self.hang_up(reason=reason)
 
     async def _hangup_task(self, task_status=trio.TASK_STATUS_IGNORED):
         task_status.started()
@@ -435,6 +433,7 @@ class Channel(BaseObject):
         elif msg.type == "ChannelLeftBridge":
             if self.bridge is msg.bridge:
                 self.bridge = None
+
         elif msg.type == "PlaybackStarted":
             assert msg.playback not in self.playbacks
             self.playbacks.add(msg.playback)
@@ -443,6 +442,7 @@ class Channel(BaseObject):
                 self.playbacks.remove(msg.playback)
             except KeyError:
                 log.warning("%s not in %s", msg.playback, self)
+
         elif msg.type == "ChannelHangupRequest":
             pass
         elif msg.type == "ChannelConnectedLine":
@@ -492,6 +492,12 @@ class Channel(BaseObject):
             else:
                 return self.bridge is not bridge
         await self.wait_for(chk)
+
+    async def wait_not_playing(self):
+        """\
+            Wait until all sound playbacks are finished.
+            """
+        await self.wait_for(lambda: not self.playbacks)
 
     async def wait_down(self):
         await self.wait_for(lambda: self._do_hangup is False)
@@ -747,7 +753,7 @@ async def promote(client, resp, operation_json):
         return None
     res = resp.text
     if res == "":
-        log.debug("resp=%s",resp)
+        log.debug("resp=%s (empty)",resp)
         return None
     resp_json = json.loads(res)
     log.debug("resp=%s",resp_json)
@@ -763,7 +769,7 @@ async def promote(client, resp, operation_json):
         if is_list:
             return [factory(client, json=obj) for obj in resp_json]
         return factory(client, json=resp_json)
-    log.info("No mapping for %s; returning JSON" % response_class)
+    log.info("No mapping for %s" % response_class)
     return resp_json
 
 
