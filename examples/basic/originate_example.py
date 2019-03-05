@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/python3
 
 """Example demonstrating ARI channel origination.
 
@@ -15,13 +15,17 @@ from asks.errors import AsksException  # HTTPNotFound, HTTPBadRequest
 from pprint import pprint
 
 import os
-ast_url = os.getenv("AST_URL", 'http://localhost:8088/')
+ast_host = os.getenv("AST_HOST", 'localhost')
+ast_port = int(os.getenv("AST_ARI_PORT", 8088))
+ast_url = os.getenv("AST_URL", 'http://%s:%d/'%(ast_host,ast_port))
 ast_username = os.getenv("AST_USER", 'asterisk')
 ast_password = os.getenv("AST_PASS", 'asterisk')
 ast_app = os.getenv("AST_APP", 'hello')
 ast_outgoing = os.getenv("AST_OUTGOING", 'SIP/blink')
 
 client = None
+
+NOT_FOUND = 404
 
 holding_bridge = None
 async def setup():
@@ -37,7 +41,6 @@ async def setup():
     else:
         holding_bridge = await client.bridges.create(type='holding')
         print ("Created bridge %s" % holding_bridge.id)
-        holding_bridge.created()
 
 
 async def safe_hangup(channel):
@@ -49,7 +52,7 @@ async def safe_hangup(channel):
         await channel.hangup()
     except AsksException as e:
         # Ignore 404's, since channels can go away before we get to them
-        if e.response.status_code != HTTPNotFound.status_code:
+        if e.status_code != NOT_FOUND:
             raise
 
 
@@ -66,7 +69,6 @@ async def _on_start(objs, event):
     :param event:
     """
     # Don't process our own dial
-    import pdb;pdb.set_trace()
     if event['args'][0] == 'dialed':
         return
 
@@ -98,7 +100,7 @@ async def _on_start(objs, event):
     outgoing.on_event('ChannelDestroyed',
                       lambda *args: safe_hangup(incoming))
 
-    async def outgoing_on_start(channel, event):
+    async def outgoing_on_start(event, channel):
         """Callback for StasisStart events on the outgoing channel
 
         :param channel: Outgoing channel.
@@ -113,7 +115,7 @@ async def _on_start(objs, event):
         # Clean up the bridge when done
         outgoing.on_event('StasisEnd', lambda *args: bridge.destroy())
 
-    outgoing.on_event('StasisStart', outgoing_on_start)
+    outgoing.on_event('StasisStart', outgoing_on_start, outgoing)
 
 async def main():
     async with trio_ari.connect(ast_url, ast_app, ast_username,ast_password) as _client:

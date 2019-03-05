@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/python3
 
 """Brief example of using the channel API.
 
@@ -16,17 +16,19 @@ import trio
 import logging
 
 import os
-ast_url = os.getenv("AST_URL", 'http://localhost:8088/')
+ast_host = os.getenv("AST_HOST", 'localhost')
+ast_port = int(os.getenv("AST_ARI_PORT", 8088))
+ast_url = os.getenv("AST_URL", 'http://%s:%d/'%(ast_host,ast_port))
 ast_username = os.getenv("AST_USER", 'asterisk')
 ast_password = os.getenv("AST_PASS", 'asterisk')
 ast_app = os.getenv("AST_APP", 'hello')
 
-async def do_hangup(channel, event):
+async def do_hangup(event, channel):
     if channel.playbacks:
         return # something is still playing?
     await channel.continueInDialplan()
 
-async def on_dtmf(channel, event):
+async def on_dtmf(event, channel):
     """Callback for DTMF events.
 
     When DTMF is received, play the digit back to the channel. # hangs up,
@@ -39,7 +41,7 @@ async def on_dtmf(channel, event):
     print(digit)
     await trio.sleep(0.01)
     if digit == '#':
-        channel.on_event("PlaybackFinished", do_hangup)
+        channel.on_event("PlaybackFinished", do_hangup, channel)
         await channel.play(media='sound:vm-goodbye')
     elif digit == '*':
         await channel.play(media='sound:asterisk-friend')
@@ -61,7 +63,7 @@ async def on_start(objs, event):
     #r = await channel.getChannelVar(variable="CALLERID(num)")
     #t = await channel.getChannelVar(variable="CALLERID(ton)")
     #print("** START **", channel, t,r,event)
-    channel.on_event('ChannelDtmfReceived', on_dtmf)
+    channel.on_event('ChannelDtmfReceived', on_dtmf, channel)
     await channel.answer()
     await channel.play(media='sound:hello-world')
 
