@@ -272,12 +272,15 @@ class BaseObject(object):
     def on_event(self, event_type, fn, *args, **kwargs):
         """Register event callbacks for this specific domain object.
 
-        :param event_type: Type of event to register for.
+        :param event_type: Type of event to register for, or '*'
         :type  event_type: str
-        :param fn:  Callback function for events.
+        :param fn:  Callback function for events: fn(evt, *args, **kwargs)
         :type  fn:  (object, dict) -> None
-        :param args: Arguments to pass to fn
-        :param kwargs: Keyword arguments to pass to fn
+
+        All additional arguments or keywords are passed to `fn`.
+
+        The return value is an object with a `close` method; call it to
+        deregister the event handler.
         """
         client = self.client
         callback_obj = (fn, args, kwargs)
@@ -290,8 +293,10 @@ class BaseObject(object):
             def close(self_):
                 """Unsubscribe the associated event callback.
                 """
-                if callback_obj in self.event_listeners[event_type]:
+                try:
                     self.event_listeners[event_type].remove(callback_obj)
+                except ValueError:
+                    pass
 
         return EventUnsubscriber()
 
