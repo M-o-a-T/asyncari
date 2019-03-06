@@ -13,7 +13,7 @@ to the channel. Press # to hang up, and * for a special message.
 #
 
 import trio_ari
-from trio_ari.state import ToplevelChannelState
+from trio_ari.state import ToplevelChannelState, DTMFHandler
 import trio
 import logging
 import asks
@@ -26,7 +26,7 @@ ast_username = os.getenv("AST_USER", 'asterisk')
 ast_password = os.getenv("AST_PASS", 'asterisk')
 ast_app = os.getenv("AST_APP", 'hello')
 
-class State(ToplevelChannelState):
+class State(ToplevelChannelState, DTMFHandler):
     do_hang = False
 
     async def on_start(self):

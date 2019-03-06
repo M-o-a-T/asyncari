@@ -12,7 +12,7 @@ endpoint when a Stasis call arrives, and connect the call.
 import trio_ari
 import trio
 import logging
-from trio_ari.state import ToplevelChannelState, HangupBridgeState
+from trio_ari.state import ToplevelChannelState, HangupBridgeState, DTMFHandler
 from trio_ari.model import ChannelExit
 
 from pprint import pprint
@@ -28,11 +28,11 @@ ast_outgoing = os.getenv("AST_OUTGOING", 'SIP/blink')
 
 # This demonstrates incoming DTMF recognition on both legs of a call
 
-class CallState(ToplevelChannelState):
+class CallState(ToplevelChannelState, DTMFHandler):
     async def on_dtmf(self,evt):
         print("*DTMF*EXT*",evt.digit)
 
-class CallerState(ToplevelChannelState):
+class CallerState(ToplevelChannelState, DTMFHandler):
     async def on_start(self):
         async with HangupBridgeState.new(self.client, join_timeout=30) as br:
             await br.add(self.channel)
