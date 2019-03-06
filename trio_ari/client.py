@@ -98,7 +98,8 @@ class Client:
         :param apps: Application (or list of applications) to connect for
         :type  apps: str or list of str
 
-        This is an asyncio 
+        This is a coroutine. Don't call it directly, it's autostarted by
+        the context manager.
         """
         apps = self._apps
         if isinstance(apps, list):
@@ -305,6 +306,7 @@ class Client:
                     obj = vals[0]
                 else:
                     obj = None
+            # This may be a coroutine – doesn't matter
             return event_cb(obj, event, *args, **kwargs)
 
         return self.on_event(event_type, extract_objects,
