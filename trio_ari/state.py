@@ -9,6 +9,7 @@ hangs up, a :class:`ChannelExit` exception is raised.
 import math
 import trio
 import inspect
+import functools
 
 from .model import ChannelExit, BridgeExit, EventTimeout, StateError
 from async_generator import asynccontextmanager
@@ -18,7 +19,7 @@ import logging
 log = logging.getLogger(__name__)
 
 __all__ = ["ToplevelChannelstate", "Channelstate", "Bridgestate", "HangupBridgestate", "OutgoingChannelState",
-           "DTMFHandler", "EvtHandler"]
+           "DTMFHandler", "EvtHandler", "as_task"]
 
 _StartEvt = "_StartEvent"
 
@@ -45,6 +46,13 @@ class _ErrorEvent:
 	type = "_error"
 	def __init__(self,exc):
 		self.exc = exc
+
+def as_task(proc):
+	@functools.wraps(proc)
+	async def worker(self, *a, **kw):
+		self.nursery.start_soon(functools.partial(proc, self, *a, **kw))
+	assert inspect.iscoroutinefunction(proc)
+	return worker
 
 class BaseEvtHandler:
 	"""Our generic event handler.
@@ -128,7 +136,7 @@ class BaseEvtHandler:
 			await self._run(task_status=task_status)
 
 	async def __aenter__(self):
-		assert self._done is None
+		assert self._done is None, self._done
 		self._done = trio.Event()
 		if self._prev is not None:
 			if prev._sub is not None:
