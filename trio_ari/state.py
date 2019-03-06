@@ -118,7 +118,6 @@ class BaseEvtHandler:
 		self._base_nursery = nursery
 
 		self._send, self._recv = trio.open_memory_channel(20)
-		self._done = trio.Event()
 	
 	async def start_task(self):
 		"""This is a shortcut for running this object's event loop."""
