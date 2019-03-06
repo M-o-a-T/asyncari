@@ -181,8 +181,8 @@ class BaseEvtHandler:
 		await self._send.aclose()
 		while True:
 			try:
-				evt = self._recv.recv_nowait()
-			except trio.WouldBlock:
+				evt = self._recv.receive_nowait()
+			except trio.EndOfChannel:
 				break
 			else:
 				await self._handle_prev(evt)
@@ -201,7 +201,11 @@ class BaseEvtHandler:
 			await self._handle_here(evt)
 
 	async def _handle_here(self, evt):
-		await self._send.send(evt)
+		try:
+			await self._send.send(evt)
+		except trio.ClosedResourceError:
+			log.info("Unhandled event %s on %s (closed)", evt.type, self)
+
 
 	async def _dispatch(self, evt):
 		typ = evt.type
@@ -258,6 +262,8 @@ class BaseEvtHandler:
 				try:
 					async with self._proc_lock:
 						evt = await self.get_event()
+				except StopAsyncIteration:
+					return
 				finally:
 					self._n_proc -= 1
 				if self._n_proc == 0:
@@ -281,8 +287,13 @@ class BaseEvtHandler:
 
 			async on_MyTimeout(self, evt):
 				self.done(None)
+
+		Raises StopAsyncIteration when no more events will arrive.
 		"""
-		evt = await self._recv.receive()
+		try:
+			evt = await self._recv.receive()
+		except trio.EndOfChannel:
+			raise StopAsyncIteration
 		log.debug("Event:%s %s", self, evt)
 		return evt
 
