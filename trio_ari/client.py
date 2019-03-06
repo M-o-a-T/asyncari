@@ -391,7 +391,7 @@ class EventMessage:
         event_type = msg['type']
         event_model = client.event_models.get(event_type)
         if not event_model:
-            logger.warn("Cannot find event model '%s'" % event_type)
+            log.warn("Cannot find event model '%s'" % event_type)
             return
         event_model = event_model.get('properties', {})
 
