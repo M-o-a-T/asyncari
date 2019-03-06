@@ -463,8 +463,6 @@ class Channel(BaseObject):
 
     async def wait_up(self):
         def chk():
-            if self._do_hangup is not None:
-                raise StateError(self)
             return self.state == "Up"
         await self.wait_for(chk)
 
@@ -490,8 +488,6 @@ class Channel(BaseObject):
             if None, wait for the channel to be not connected to any bridge.
             """
         def chk():
-            if self._do_hangup is not None:
-                raise StateError(self)
             if bridge is None:
                 return self.bridge is None
             else:
