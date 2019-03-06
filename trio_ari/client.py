@@ -14,6 +14,7 @@ import trio_swagger11
 import trio_swagger11.client
 import time
 import inspect
+import sys
 from wsproto.events import CloseConnection, TextMessage
 from .model import CLASS_MAP
 
@@ -116,12 +117,37 @@ class Client:
             await ws.close()
             self.websockets.remove(ws)
 
+    async def _check_runtime(self, recv, task_status=trio.TASK_STATUS_IGNORED):
+        """This gets streamed a message when processing begins, and `None`
+        when it ends. Repeat.
+        """
+        task_status.started()
+        while True:
+            msg = await recv.receive()
+            assert msg is not None
+
+            try:
+                with trio.fail_after(0.2):
+                    msg = await recv.receive()
+                    assert msg is None
+            except trio.TooSlowError:
+                log.error("Processing delayed: %s", msg)
+                t = trio.current_time()
+                # don't hard-fail that fast when debugging
+                with trio.fail_after(1 if 'pdb' not in sys.modules else 99):
+                    msg = await recv.receive()
+                    assert msg is None
+                log.error("Processing recovered after %.2f sec", trio.current_time()-t)
+
     async def __run(self, ws):
         """Drains all messages from a WebSocket, sending them to the client's
         listeners.
 
         :param ws: WebSocket to drain.
         """
+        send_q,recv_q = trio.open_memory_channel(0)
+        await self.nursery.start(self._check_runtime, recv_q)
+
         async for msg in ws:
             if isinstance(msg, CloseConnection):
                 break
@@ -132,7 +158,12 @@ class Client:
             if not isinstance(msg_json, dict) or 'type' not in msg_json:
                 log.error("Invalid event: %s", msg)
                 continue
-            await self.process_ws(msg_json)
+            try:
+                await send_q.send(msg_json)
+                await self.process_ws(msg_json)
+            finally:
+                await send_q.send(None)
+        send_q.close()
 
     async def _init(self, RepositoryFactory=Repository):
         await self.swagger.init()
