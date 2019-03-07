@@ -18,7 +18,7 @@ from concurrent.futures import CancelledError
 import logging
 log = logging.getLogger(__name__)
 
-__all__ = ["ToplevelChannelstate", "Channelstate", "Bridgestate", "HangupBridgestate", "OutgoingChannelState",
+__all__ = ["ToplevelChannelState", "ChannelState", "BridgeState", "HangupBridgeState", "OutgoingChannelState",
            "DTMFHandler", "EvtHandler", "as_task"]
 
 _StartEvt = "_StartEvent"
@@ -42,6 +42,13 @@ class _ResultEvent:
 	def __init__(self,res):
 		self.res = res
 
+# Time for a stupid helper
+def _count(it):
+	n = 0
+	for _ in it:
+		n += 1
+	return n
+
 class _ErrorEvent:
 	type = "_error"
 	def __init__(self,exc):
@@ -61,18 +68,16 @@ class BaseEvtHandler:
 	handler; an event percolates down if it isn't processed.
 
 	Events get queued by calling :meth:`handle`. The handler's main loop
-	repeatedly calls :meth:`get_event` to fetch the next event, and either
-	processes it or calls :meth:`handle_prev` (which returns ``False`` if
-	this is the top event handler).
+	repeatedly calls :meth:`get_event` to fetch the next event, and
+	processes it. If the event handler either does not exist or explicitly
+	returns `False`, it is relegated to the next-upper layer, or printed as
+	a warning (for the bottom event handler).
 
-	Hangups and other "terminal" events should always percolate to the
+	Hangups and other "terminal" events should always be processed by the
 	outermost event handler.
 
-	A handler is activated by entering its async context handler. As a
-	shortcut you may simply call it, which also returns its result.
-
-	A handler is terminated by calling :meth:`done`, usually from an event
-	method.
+	A handler is activated by entering its async context. It is terminated
+	by calling :meth:`done`, usually triggered by an event.
 
 	By default, specific events are processed by calling ``on_EVENTNAME``,
 	though your runner is free to override that.
@@ -87,9 +92,6 @@ class BaseEvtHandler:
 	"""
 	# Main client, for Asterisk ARI calls
 	client = None
-
-	# The event handler we're leeching off of
-	_prev = None
 
 	# The event handler leeching off us
 	_sub = None
@@ -121,29 +123,27 @@ class BaseEvtHandler:
 
 	def __init__(self, client, nursery=None):
 		self.client = client
-		if nursery is None:
-			nursery = client.nursery
-		self._base_nursery = nursery
+		self._base_nursery = nursery or client.nursery
 
 		self._send, self._recv = trio.open_memory_channel(20)
-	
+
 	async def start_task(self):
-		"""This is a shortcut for running this object's event loop."""
+		"""This is a shortcut for running this object's async context
+		manager / event loop in a separate task."""
 		await self._base_nursery.start(self._run_ctx)
 
 	async def _run_ctx(self, task_status=trio.TASK_STATUS_IGNORED):
 		async with self:
-			await self._run(task_status=task_status)
+			await self._done.wait()
 
 	async def __aenter__(self):
+		"""
+		Context manager to run this state machine's "run" method / main loop.
+		"""
 		assert self._done is None, self._done
 		self._done = trio.Event()
-		if self._prev is not None:
-			if prev._sub is not None:
-				raise RuntimeError("Our parent already has a sub-handler")
-			prev._sub = self
 
-		await self.client.nursery.start(self._run, name="Run:"+repr(self))
+		await self._base_nursery.start(self._run, name="Run:"+repr(self))
 		return self
 
 	@property
@@ -182,11 +182,9 @@ class BaseEvtHandler:
 		self._done.set()
 		self._done = None
 
-		if self._prev is not None:
-			if prev._sub is not self:
-				raise RuntimeError("Problem nesting event handlers")
-			prev._sub = None
 		await self._send.aclose()
+
+		# Any unprocessed events get relegated to the parent
 		while True:
 			try:
 				evt = self._recv.receive_nowait()
@@ -195,9 +193,21 @@ class BaseEvtHandler:
 			else:
 				await self._handle_prev(evt)
 
+	def done_sub(self):
+		"""Terminate my sub-handler, assuming one exists.
+
+		Returns True if there was a sub-handler to cancel, False
+		otherwise.
+		"""
+		if not self._sub:
+			return False
+		self._sub.done()
+		self._sub = None
+		return True
+
 	async def handle(self, evt):
 		"""Dispatch a single event to this handler.
-		
+
 		* Feed the event to the current sub-handler, if any.
 		* If the event is handled, return True.
 		* Otherwise, call ``self.on_EventName(evt)``. If that handler
@@ -220,7 +230,7 @@ class BaseEvtHandler:
 		try:
 			handler = getattr(self, 'on_'+typ)
 		except AttributeError:
-			await self.handle_prev(evt)
+			await self._handle_prev(evt)
 			return
 		res = handler(evt)
 		if inspect.iscoroutine(res):
@@ -230,7 +240,7 @@ class BaseEvtHandler:
 			res = True
 		return res
 
-	async def handle_prev(self, evt):
+	async def _handle_prev(self, evt):
 		log.info("Unhandled event %s on %s", evt.type, self)
 		return False
 
@@ -244,8 +254,8 @@ class BaseEvtHandler:
 				with trio.fail_after(30):
 					await super().run()
 
-		You must call :meth:`handle_prev` on events you don't recognize.
-		
+		You must call :meth:`_handle_prev` on events you don't recognize.
+
 		This method starts tasks that do the actual event processing which
 		don't die if `run` is cancelled. A new task is started if
 		processing an event takes longer than 0.1 seconds.
@@ -276,10 +286,20 @@ class BaseEvtHandler:
 					self._n_proc -= 1
 				if self._n_proc == 0:
 					self._proc_check.set()
-				await self._dispatch(evt)
+
+				# Any unhandled event is relegated to the parent
+				try:
+					run_in_parent = await self._dispatch(evt)
+				except BaseException as exc:
+					await self._handle_prev(evt)
+					raise
+				else:
+					if run_in_parent:
+						await self._handle_prev(evt)
+
 		finally:
 			log.debug("StopRun %s", self)
-	
+
 	async def get_event(self):
 		"""
 		Get the next event from this handler's queue.
@@ -335,7 +355,7 @@ class BaseEvtHandler:
 
 	async def on_error(self, exc):
 		"""Called when a sub-handler's state macheine raises an error.
-		
+
 		The default is to re-raise the error.
 		"""
 		raise exc
@@ -353,35 +373,9 @@ class BaseEvtHandler:
 		yield from self._done.wait().__await__()
 
 
-class EvtHandler(BaseEvtHandler):
+class _EvtHandler(BaseEvtHandler):
 	"""
-	This is an event handler used for delegating event collection. You
-	typically use it for IVR tasks or subtasks (e.g. collecting a code
-	number).
-
-	To start an event handler, call its :meth:`start_task` method. It will
-	run in the background and return its result via your
-	:meth:`BaseEvtHandler.on_result` or :meth:`BaseEvtHandler.on_error`
-	methods.
-
-	This is a context manager. You can simply call it::
-
-		result = await EvtHandler(self.client)()
-	
-	or use it directly::
-
-		async with EvtHandler(self.client) as evt:
-			result = await evt
-
-	Stacked event handlers are typically used for IVR applications. The
-	handler can call :meth:`done` with the handler's intended result (e.g.
-	a phone number the user entered, or the number of still-waiting
-	messages).
-
-	You cannot start a sub-handler directly because that would block your
-	own event queue. Use ``await 
-
-	``await client.start(SubHandler(client,self))``.
+	common methods for AsyncEvtHandler and SyncEvtHandler
 	"""
 	# The event handler we're leeching off of
 	_prev = None
@@ -392,21 +386,69 @@ class EvtHandler(BaseEvtHandler):
 	def __init__(self, prev):
 		self._prev = prev
 		super().__init__(prev.client, nursery=prev.nursery)
-	
+
+	async def _handle_prev(self, evt):
+		self._prev._handle_here(evt)
+		return True
+
+	async def __aenter__(self):
+		# the event handler stack doesn't allow branches
+		if prev._sub is not None:
+			raise RuntimeError("Our parent already has a sub-handler")
+		prev._sub = self
+
+		return await super().__aenter__()
+
+	async def __aexit__(self, *tb):
+		# the event handler stack doesn't allow inconsistency
+		if prev._sub is not self:
+			raise RuntimeError("Problem nesting event handlers")
+		prev._sub = None
+
+		return await super().__aexit__(*tb)
+
+	def __await__(self):
+		# alias "await Handler()" to "await Handler()._await()"
+		return self._await().__await__()
+
+	async def _await(self):
+		raise RuntimeError("Use a subclass.")
+
+class AsyncEvtHandler(_EvtHandler):
+	"""
+	This event handler operates asynchronously, i.e. you start it
+	off and get its result in an event::
+
+		class MenuOne(AsyncEvtHandler):
+			pass  # do whatever it takes to handle this submenu
+			# Somewhere in there you'll call "self.done(RESULT)"
+
+		async def on_dtmf_1(self evt):
+			await MenuOne(self)
+
+		def on_result(self, res):
+			pass  # do whatever you want with RESULT
+
+		def on_error(self, err):
+			raise  # do whatever you want with the error
+
+	Alternately, use :class:`SyncEvtHandler` in a separate task.
+
+	"""
 	async def _run(self, task_status=trio.TASK_STATUS_IGNORED):
 		try:
 			await super()._run(task_status=task_status)
 		except Exception as exc:
-			await self.handle_prev(ErrorEvent(exc))
+			await self._handle_prev(ErrorEvent(exc))
 		except trio.Cancelled:
 			if self._done.is_set():
-				await self.handle_prev(ResultEvent(self._result))
+				await self._handle_prev(ResultEvent(self._result))
 			raise
 		except BaseException:
-			await self.handle_prev(ErrorEvent(CancelledError()))
+			await self._handle_prev(ErrorEvent(CancelledError()))
 			raise
 		else:
-			await self.handle_prev(ResultEvent(self._result))
+			await self._handle_prev(ResultEvent(self._result))
 
 	def done(self, result=None):
 		"""Signal that this event handler has finished with this result.
@@ -414,11 +456,45 @@ class EvtHandler(BaseEvtHandler):
 		super().done()
 		self._result = result
 
+	async def _await(self):
+		await self._start_task()
+
+
+class SyncEvtHandler(_EvtHandler):
+	"""
+	This event handler operates synchronously, i.e. you can simply run it
+	and get its result::
+
+		class MenuOne(SyncEvtHandler):
+			pass  # do whatever it takes to handle this submenu
+			# Somewhere in there you'll call "self.done(RESULT)"
+
+		@as_task
+		async def on_digit_1(self evt):
+			try:
+				res = await MenuOne(self)
+			except Exception as err:
+				raise  # do whatever you want with the error
+			else:
+				pass  # do whatever you want with RESULT
+
+	You **must** decorate your handler with :func:`as_task` or otherwise
+	delegate this call to another task. If you don't, event handling may
+	deadlock. You'll also get an error message that your event handler
+	takes too long.
+
+	Alternately, use :class:`AsyncEvtHandler` and `on_result`.
+	"""
+	async def _await(self):
+		await self._run_ctx()
+		return self._result
+
 
 class DTMFHandler:
 	"""A handler mix-in that dispatches DTMF tones to specific handlers.
-	
-	This is not a stand-alone object.
+
+	This is not a stand-alone class – use as a mix-in to ``EvtHandler``,
+	``ChannelState``, or ``BridgeState``.
 	"""
 
 	async def on_ChannelDtmfReceived(self, evt):
@@ -427,7 +503,7 @@ class DTMFHandler:
 		Calls ``on_dtmf_{0-9,A-D,Hash,Pound}`` methods.
 		If that doesn't exist and a digit is dialled, call ``on_dtmf_digit``.
 		If that doesn't exist either, call ``on_dtmf``.
-		If that doesn't exist either, punt.
+		If that doesn't exist either, punt to calling state machine.
 		"""
 
 		digit = evt.digit
@@ -450,7 +526,7 @@ class DTMFHandler:
 				p = await p
 			return p
 
-class ThingEvtHandler(BaseEvtHandler):
+class _ThingEvtHandler(BaseEvtHandler):
 	async def run(self, task_status=trio.TASK_STATUS_IGNORED):
 		handler = self.ref.on_event("*", self.handle)
 		try:
@@ -459,7 +535,7 @@ class ThingEvtHandler(BaseEvtHandler):
 			handler.close()
 
 
-class ChannelState(ThingEvtHandler):
+class ChannelState(_ThingEvtHandler):
 	"""This is the generic state machine for a single channel."""
 	_src = 'channel'
 	def __init__(self, channel):
@@ -475,33 +551,49 @@ class ChannelState(ThingEvtHandler):
 		self.done()
 
 
-class BridgeState(ThingEvtHandler):
+class BridgeState(_ThingEvtHandler):
 	"""
 	This is the generic state machine for a bridge.
 
-	This bridge raises BridgeExit when it terminates.
+	The bridge is always auto-destroyed when its handler ends.
 	"""
 	_src = 'bridge'
 	TYPE="mixing"
 	calls = set()
+	bridge = None
 
 	def __init__(self, bridge):
 		self.bridge = bridge
 		super().__init__(bridge.client)
 
 	@classmethod
-	async def new(cls, client, type="mixing", **kw):
-		br = await client.bridges.create(type=type)
-		s = cls(br, **kw)
-		await client.nursery.start(s.run)
+	def new(cls, client, type="mixing", **kw):
+		"""
+		Create a new bridge with this state machine.
+
+		Always use as `async with …`.
+		"""
+		s = object.__new__(cls)
+		s.client = client
+		s._bridge_args = dict(type=type, bridgeId=client.generate_id("B"))
 		return s
+
+	async def __aenter__(self):
+		if self.bridge is None:
+			self.__init__(await self.client.bridges.create(**self._bridge_args))
+			del self._bridge_args
+		return await super().__aenter__()
+
+	async def __aexit__(self, *tb):
+		await self.teardown()
+		return super().__aexit__(*tb)
 
 	async def add(self, channel):
 		"""Add a new channel to this bridge."""
 		await self._add_monitor(channel)
 		await self.bridge.addChannel(channel=channel.id)
 		await channel.wait_bridged(self.bridge)
-		
+
 	async def on_channel_added(self, channel):
 		"""Hook, called after a channel has been added successfully."""
 		pass
@@ -510,10 +602,10 @@ class BridgeState(ThingEvtHandler):
 		"""Remove a channel from this bridge."""
 		await self.bridge.removeChannel(channel=channel.id)
 		await channel.wait_bridged(None)
-		
+
 	async def _dial(self, State=ChannelState, **kw):
 		"""Helper to start a call"""
-		ch_id = self.client.generate_id()
+		ch_id = self.client.generate_id("C")
 		log.debug("DIAL %s",kw.get('endpoint', 'unknown'))
 		ch = await self.client.channels.originate(channelId=ch_id, app=self.client._app, appArgs=["dialed", kw.get('endpoint', 'unknown')], **kw)
 		self.calls.add(ch)
@@ -529,7 +621,7 @@ class BridgeState(ThingEvtHandler):
 
 		Returns a state instance (if given), or the channel (if not).
 		"""
-		
+
 		ch = await self._dial(**kw)
 		try:
 			await ch.wait_up()
@@ -574,6 +666,7 @@ class BridgeState(ThingEvtHandler):
 
 	async def on_connected(self, channel):
 		"""Callback when an outgoing call is answered.
+
 		Default: answer all (incoming) channels that are still in RING
 		"""
 		for ch in self.bridge.channels:
@@ -596,13 +689,14 @@ class BridgeState(ThingEvtHandler):
 		except KeyError:
 			pass
 		await self.on_channel_added(ch)
-		if ch.state == "Up":
+		if ch.state == "Up":# and ch.prev_state != "Up":
 			await self.on_connected(ch)
 
 	async def on_ChannelLeftBridge(self, evt):
 		await self._chan_dead(evt)
-	
+
 	async def _add_monitor(self, ch):
+		"""Listen to non-bridge events on the channel"""
 		if not hasattr(ch,'_bridge_evt'):
 			ch._bridge_evt = ch.on_event("*", self._chan_evt)
 
@@ -614,22 +708,25 @@ class BridgeState(ThingEvtHandler):
 		await self.handle(evt)
 
 	async def on_ChannelStateChange(self, evt):
+		"""calls self._chan_state_change"""
 		await self._chan_state_change(evt)
 
 	async def on_ChannelConnectedLine(self, evt):
+		"""calls self._chan_state_change"""
 		await self._chan_state_change(evt)
 
 	async def on_ChannelDestroyed(self, evt):
+		"""calls self._chan_dead"""
 		await self._set_cause(evt)
 		await self._chan_dead(evt)
 
 	async def on_ChannelHangupRequest(self, evt):
+		"""kills the channel"""
 		await self._set_cause(evt)
 		try:
 			await evt.channel.hang_up()
 		except Exception as exc:
 			log.warning("Hangup %s: %s", evt.channel, exc)
-		# await self._chan_dead(evt)
 
 	async def on_channel_end(self, ch, evt=None):
 		"""
@@ -643,6 +740,7 @@ class BridgeState(ThingEvtHandler):
 			pass
 
 	async def _set_cause(self, evt):
+		"""Set the hangup cause for this bridge's channels"""
 		try:
 			cc = evt.cause
 		except AttributeError:
@@ -657,12 +755,15 @@ class BridgeState(ThingEvtHandler):
 
 		if not hasattr(ch, '_bridge_evt'):
 			return
+
+		# remove the listener
 		ch._bridge_evt.close()
 		del ch._bridge_evt
 
 		await self.on_channel_end(ch, evt)
 
 	async def _chan_state_change(self, evt):
+		"""react to channel state change"""
 		ch = evt.channel
 		log.debug("StateChange %s %s", self, ch)
 		if ch not in self.bridge.channels:
@@ -671,11 +772,18 @@ class BridgeState(ThingEvtHandler):
 			await self.on_connected(ch)
 
 	async def teardown(self, skip_ch=None, hangup_reason="normal"):
-		"""removes all channels from the bridge"""
-		if self._in_shutdown:
-			return
-		self._in_shutdown = True
+		"""Removes all channels from the bridge and destroys it.
 
+		If `hangup_reason` is `None`, leave the channels alone;
+		otherwise (the default) they're disconnected.
+
+		This method is typically called when leaving the bridge's context
+		manager. If you want to keep it online, e.g. for being able to
+		cleanly restart a PBX without downtime, you may override this --
+		but you're then responsible for recovering state after restarting,
+		and you still need to clean up bridge that are closed normally.
+
+		"""
 		log.info("TEARDOWN %s %s",self,self.bridge.channels)
 		for ch in list(self.bridge.channels)+list(self.calls):
 			if hangup_reason:
@@ -689,60 +797,18 @@ class BridgeState(ThingEvtHandler):
 				await self.bridge.removeChannel(channel=ch.id)
 			except Exception as exc:
 				log.info("%s detached: %s", ch, exc)
-				
+
 		await self.bridge.destroy()
 
 
-class ToplevelBridgeState(BridgeState):
-	"""A bridge state suitable for an incoming channel.
-
-	The bridge task is aut-closed when it ends.
+class HangupBridgeState(BridgeState):
+	"""A bridge controller that hangs up all channels and deletes its
+	bridge as soon as there is only one active channel left.
 	"""
-	async def run(self, task_status=trio.TASK_STATUS_IGNORED):
-		try:
-			return await super().run(task_status=task_status)
-		except BridgeExit:
-			pass
-		finally:
-			await self.teardown()
-
-
-class HangupBridgeState(ToplevelBridgeState):
-	"""A bridge controller that hangs up all channels and deletes the
-	bridge as soon as one channel leaves.
-
-	This state machine does not raise BridgeExit.
-	"""
-	_in_shutdown = None
-
-	def __init__(self, bridge, join_timeout=math.inf, talk_timeout=math.inf):
-		super().__init__(bridge)
-		self.talk_timeout = talk_timeout
-		if len(self.bridge.channels) >= 2:
-			self.timeout = talk_timeout
-		else:
-			self.timeout = join_timeout
-
-	async def on_ChannelEnteredBridge(self, evt):
-		await super().on_ChannelEnteredBridge(evt)
-
-		if len(self.bridge.channels) >= 2:
-			self.timeout = self.talk_timeout
-
 	async def on_channel_end(self, ch, evt=None):
 		await super().on_channel_end(ch, evt)
-		await self.teardown(ch)
-
-	async def on_timeout(self):
-		await self.teardown()
-
-	async def run(self, task_status=trio.TASK_STATUS_IGNORED):
-		try:
-			return await super().run(task_status=task_status)
-		except StateError:
-			await self.teardown()
-		except BridgeExit:
-			pass
+		if _count(1 for c in self.bridge.channels if c.state == 'Up') < 2:
+			self.done()
 
 
 class ToplevelChannelState(ChannelState):
@@ -766,7 +832,7 @@ class ToplevelChannelState(ChannelState):
 
 	async def hang_up(self, reason="normal"):
 		await self.channel.set_reason(reason)
-		self.done(reason)
+		await self.channel.hang_up()
 
 class OutgoingChannelState(ToplevelChannelState):
 	"""A channel state machine that waits for an initial StasisStart event before proceeding"""
@@ -786,7 +852,7 @@ class CallManager:
 		self.State = State
 		self.timeout = timeout
 		self.kw = kw
-	
+
 	async def __aenter__(self):
 		timeout = self.timeout
 		if timeout is None:

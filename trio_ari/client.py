@@ -45,12 +45,15 @@ class Client:
             http_client=http_client, url=url)
         self.class_map = CLASS_MAP.copy()
         tm = time.time()
-        self._id_name = "T%x.%x%03x" % (os.getpid(),int(tm),int(tm*0x1000)&0xFFF)
+        self._id_name = "ARI.%x.%x%03x" % (os.getpid(),int(tm),int(tm*0x1000)&0xFFF)
         self._id_seq = 0
 
-    def generate_id(self):
+    def __repr__(self):
+        return "<%s:%s>" % (self.__class__.__name__, self._id_name)
+
+    def generate_id(self, typ=""):
         self._id_seq += 1
-        return "%s.%d" % (self._id_name, self._id_seq)
+        return "%s.%s%d" % (self._id_name, typ, self._id_seq)
         
     async def __aenter__(self):
         await self._init()

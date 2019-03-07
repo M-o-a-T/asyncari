@@ -25,6 +25,7 @@ from functools import partial
 from weakref import WeakValueDictionary
 from contextlib import suppress
 import trio
+from asks.errors import BadStatus
 
 log = logging.getLogger(__name__)
 
@@ -94,8 +95,9 @@ class Repository(object):
                 jsc = oper.json
                 try:
                     res = await oper(**kwargs)
-                except HTTPBadRequest as exc:
+                except BadStatus as exc:
                     raise OperationError(getattr(exc,'data',{'message':exc.body})['message']) from exc
+
                 res = await promote(self.p.client, res, jsc)
                 return res
         return AttrOp(self, item)
@@ -362,6 +364,8 @@ class Channel(BaseObject):
     hangup_delay=0.3
     _reason = None
     _reason_seen = None
+    prev_state = None
+    _state = None
 
     # last is better
     REASONS = ( "congestion", "no_answer", "busy", "normal" )
@@ -374,7 +378,7 @@ class Channel(BaseObject):
 
     async def set_reason(self, reason):
         """Set the reason for hanging up."""
-        # TODO select the "best" reason, not the first
+
         if reason not in self.REASONS:
             raise RuntimeError("Reason '%s' unknown" % (reason,))
         if self._reason is None:
@@ -389,7 +393,7 @@ class Channel(BaseObject):
     async def hang_up(self, reason=None):
         """Call this (and only this) to hang up a channel.
 
-        The actual hangup (or whatever) may happen asynchronously.
+        The actual hangup happens asynchronously.
         """
         if self._do_hangup is not None:
             return
@@ -516,6 +520,12 @@ class Bridge(BaseObject):
     :type  client:  client.Client
     ;param id: Instance ID, if JSON is not yet known
     :param json: Instance data
+
+    Warning: a bridge is not auto-deleted when the last channel leaves
+    or when your program ends! Your code needs to do that on its own.
+
+    Unique bridges should have well-known IDs so that they can be
+    reconnected to if your program is restarted.
     """
 
     id_generator = DefaultObjectIdGenerator('bridgeId')
