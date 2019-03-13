@@ -831,13 +831,9 @@ class ToplevelChannelState(ChannelState):
 		except StateError:
 			pass
 		finally:
-			with trio.move_on_after(2) as s:
+			with trio.fail_after(2) as s:
 				s.shield = True
-				try:
-					await self.channel.hang_up()
-					await self.channel.wait_down()
-				except Exception as exc:
-					log.info("Channel %s gone: %s", self.channel, exc, exc_info=exc)
+				await self.channel.exit_hangup()
 
 	async def hang_up(self, reason="normal"):
 		await self.channel.set_reason(reason)
