@@ -395,17 +395,17 @@ class _EvtHandler(BaseEvtHandler):
 
 	async def __aenter__(self):
 		# the event handler stack doesn't allow branches
-		if prev._sub is not None:
+		if self._prev._sub is not None:
 			raise RuntimeError("Our parent already has a sub-handler")
-		prev._sub = self
+		self._prev._sub = self
 
 		return await super().__aenter__()
 
 	async def __aexit__(self, *tb):
 		# the event handler stack doesn't allow inconsistency
-		if prev._sub is not self:
+		if self._prev._sub is not self:
 			raise RuntimeError("Problem nesting event handlers")
-		prev._sub = None
+		self._prev._sub = None
 
 		return await super().__aexit__(*tb)
 
