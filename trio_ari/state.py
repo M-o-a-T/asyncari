@@ -90,6 +90,12 @@ class BaseEvtHandler:
 	subclass :class:`EvtHandler`, :class:`ChannelState` or
 	:class:`BridgeState`.
 	"""
+	# Internally, start_task starts a separate task that enters this state machine's context.
+	# Entering the context starts _run, which creates the loop's nursery and then executes .run,
+	# which loops over incoming events and processes them.
+	# Calling .done cancels the nursery's context, thus terminates everything that's internal.
+	# Awaiting the handler itself waits for the internal loop to end.
+
 	# Main client, for Asterisk ARI calls
 	client = None
 
@@ -134,6 +140,7 @@ class BaseEvtHandler:
 
 	async def _run_ctx(self, task_status=trio.TASK_STATUS_IGNORED):
 		async with self:
+			task_status.started()
 			await self._done.wait()
 
 	async def __aenter__(self):
@@ -157,10 +164,7 @@ class BaseEvtHandler:
 	async def _run(self, task_status=trio.TASK_STATUS_IGNORED):
 		async with trio.open_nursery() as nursery:
 			self._nursery = nursery
-			try:
-				await self.run(task_status=task_status)
-			finally:
-				self._nursery = None
+			await self.run(task_status=task_status)
 
 	def done(self):
 		"""Signal that this event handler has finished.
@@ -168,17 +172,15 @@ class BaseEvtHandler:
 		This call cancels the main loop, if any, as well as the loop of any
 		sub-event handlers which might be running.
 		"""
-		if self._done is None:
-			return
-		self._done.set()
-
 		if self._nursery is not None:
 			self._nursery.cancel_scope.cancel()
-			self._nursery = None
+
+		if self._done is not None:
+			self._done.set()
 
 	async def __aexit__(self, *tb):
-		if self._nursery is not None:
-			self._nursery.cancel_scope.cancel()
+		self._nursery.cancel_scope.cancel()
+
 		self._done.set()
 		self._done = None
 
@@ -192,6 +194,7 @@ class BaseEvtHandler:
 				break
 			else:
 				await self._handle_prev(evt)
+
 
 	def done_sub(self):
 		"""Terminate my sub-handler, assuming one exists.
@@ -256,9 +259,8 @@ class BaseEvtHandler:
 
 		You must call :meth:`_handle_prev` on events you don't recognize.
 
-		This method starts tasks that do the actual event processing which
-		don't die if `run` is cancelled. A new task is started if
-		processing an event takes longer than 0.1 seconds.
+		This method uses a runner task that do the actual event processing.
+		A new runner is started if processing an event takes longer than 0.1 seconds.
 		"""
 		log.debug("StartRun %s", self)
 		task_status.started()
