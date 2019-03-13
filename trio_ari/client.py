@@ -141,6 +141,7 @@ class Client:
                 with trio.fail_after(1 if 'pdb' not in sys.modules else 99):
                     msg = await recv.receive()
                     assert msg is None
+                    pass  # processing delayed, you have a problem
                 log.error("Processing recovered after %.2f sec", trio.current_time()-t)
 
     async def __run(self, ws):
