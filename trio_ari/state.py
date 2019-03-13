@@ -481,7 +481,7 @@ class SyncEvtHandler(_EvtHandler):
 				pass  # do whatever you want with RESULT
 
 	You **must** decorate your handler with :func:`as_task` or otherwise
-	delegate this call to another task. If you don't, event handling may
+	delegate this call to another task. If you don't, event handling **will**
 	deadlock. You'll also get an error message that your event handler
 	takes too long.
 
