@@ -30,6 +30,7 @@ from asks.errors import BadStatus
 log = logging.getLogger(__name__)
 
 NO_CONTENT = 204
+NOT_FOUND = 404
 
 class StateError(RuntimeError):
     """The expected or waited-for state didn't occur"""
@@ -410,7 +411,15 @@ class Channel(BaseObject):
         Override this to be a no-op if you want to redirect the
         channel to a non-Stasis dialplan entry instead.
         """
-        await self.hang_up(reason=reason)
+        try:
+            await self.hangup(reason=reason)
+        except BadStatus as e:
+            # Ignore 404's, since channels can go away before we get to them
+            if e.status_code != NOT_FOUND:
+                raise
+        finally:
+            self.state = "Gone"
+            self._changed.set()
 
     async def _hangup_task(self, task_status=trio.TASK_STATUS_IGNORED):
         task_status.started()
