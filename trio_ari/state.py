@@ -535,6 +535,8 @@ class DTMFHandler:
 
 class _ThingEvtHandler(BaseEvtHandler):
 	async def run(self, task_status=trio.TASK_STATUS_IGNORED):
+		if self._nursery is None:
+			raise RuntimeError("I do not have a nursery. Use 'async with' or 'start_task'.")
 		handler = self.ref.on_event("*", self.handle)
 		try:
 			await super().run(task_status=task_status)
