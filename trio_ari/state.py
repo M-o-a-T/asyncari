@@ -390,7 +390,7 @@ class _EvtHandler(BaseEvtHandler):
 		super().__init__(prev.client, nursery=prev.nursery)
 
 	async def _handle_prev(self, evt):
-		self._prev._handle_here(evt)
+		await self._prev._handle_here(evt)
 		return True
 
 	async def __aenter__(self):
