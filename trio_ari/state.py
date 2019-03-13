@@ -291,12 +291,12 @@ class BaseEvtHandler:
 
 				# Any unhandled event is relegated to the parent
 				try:
-					run_in_parent = await self._dispatch(evt)
+					success = await self._dispatch(evt)
 				except BaseException as exc:
 					await self._handle_prev(evt)
 					raise
 				else:
-					if run_in_parent:
+					if success:
 						await self._handle_prev(evt)
 
 		finally:
