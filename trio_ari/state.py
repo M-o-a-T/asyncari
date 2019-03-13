@@ -504,7 +504,7 @@ class DTMFHandler:
 	async def on_ChannelDtmfReceived(self, evt):
 		"""Dispatch DTMF events.
 
-		Calls ``on_dtmf_{0-9,A-D,Hash,Pound}`` methods.
+		Calls ``on_dtmf_{0-9,A-D,Star,Pound}`` methods. (Note capitalization.)
 		If that doesn't exist and a letter is dialled, call ``on_dtmf_letter``.
 		If that doesn't exist and a digit is dialled, call ``on_dtmf_digit``.
 		If that doesn't exist either, call ``on_dtmf``.
@@ -513,9 +513,9 @@ class DTMFHandler:
 
 		digit = evt.digit
 		if digit == '#':
-			digit = 'Hash'
-		elif digit == '*':
 			digit = 'Pound'
+		elif digit == '*':
+			digit = 'Star'
 		proc = getattr(self,'on_dtmf_'+digit, None)
 		if proc is None and digit >= '0' and digit <= '9':
 			proc = getattr(self,'on_dtmf_digit', None)
@@ -525,7 +525,7 @@ class DTMFHandler:
 			proc = getattr(self,'on_dtmf', None)
 
 		if proc is None:
-			log.info("Unhandled DTMF %s on %s", evt.digit, self.ref)
+			log.info("Unhandled DTMF %s on %s", evt.digit, self)
 			return False
 		else:
 			p = proc(evt)
