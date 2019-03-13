@@ -416,8 +416,8 @@ class _EvtHandler(BaseEvtHandler):
 	def done(self, result=None):
 		"""Signal that this event handler has finished with this result.
 		"""
-		super().done()
 		self._result = result
+		super().done()
 
 	async def _await(self):
 		raise RuntimeError("Use a subclass.")
