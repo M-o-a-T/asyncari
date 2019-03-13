@@ -443,6 +443,8 @@ class AsyncEvtHandler(_EvtHandler):
 		except trio.Cancelled:
 			if self._done.is_set():
 				await self._handle_prev(ResultEvent(self._result))
+			else:
+				await self._handle_prev(ErrorEvent(CancelledError()))
 			raise
 		except BaseException:
 			await self._handle_prev(ErrorEvent(CancelledError()))
