@@ -15,9 +15,11 @@ setup(
     license="MIT -or- Apache License 2.0",
     packages=find_packages(),
     install_requires=[
-        "trio",
+        "trio>=0.11",
         "trio_swagger11",
         "asks",
+        "attrs>=18",
+        "asyncwebsockets",
     ],
     keywords=[
         "asterisk",
