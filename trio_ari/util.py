@@ -5,6 +5,7 @@ Helper state machines
 """
 
 import trio
+import math
 
 from .state import SyncEvtHandler, AsyncEvtHandler, DTMFHandler
 
