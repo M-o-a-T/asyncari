@@ -411,6 +411,12 @@ class _EvtHandler(BaseEvtHandler):
 		# alias "await Handler()" to "await Handler()._await()"
 		return self._await().__await__()
 
+	def done(self, result=None):
+		"""Signal that this event handler has finished with this result.
+		"""
+		super().done()
+		self._result = result
+
 	async def _await(self):
 		raise RuntimeError("Use a subclass.")
 
@@ -424,13 +430,13 @@ class AsyncEvtHandler(_EvtHandler):
 			# Somewhere in there you'll call "self.done(RESULT)"
 
 		async def on_dtmf_1(self evt):
-			await MenuOne(self)
+			await MenuOne(self)  # this returns (almost) immediately
 
-		def on_result(self, res):
+		async def on_result(self, res):
 			pass  # do whatever you want with RESULT
 
-		def on_error(self, err):
-			raise  # do whatever you want with the error
+		async def on_error(self, err):
+			raise err  # do whatever you want with the error
 
 	Alternately, use :class:`SyncEvtHandler` in a separate task.
 
@@ -451,12 +457,6 @@ class AsyncEvtHandler(_EvtHandler):
 			raise
 		else:
 			await self._handle_prev(ResultEvent(self._result))
-
-	def done(self, result=None):
-		"""Signal that this event handler has finished with this result.
-		"""
-		super().done()
-		self._result = result
 
 	async def _await(self):
 		await self._start_task()
