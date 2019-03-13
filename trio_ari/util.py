@@ -12,6 +12,7 @@ from .state import SyncEvtHandler, AsyncEvtHandler, DTMFHandler
 __all__ = [
         "NumberError", "NumberTooShortError", "NumberTooLongError", "TimeoutError", "NumberTimeoutError", "DigitTimeoutError", 
         "SyncReadNumber", "AsyncReadNumber",
+        "SyncPlay",
         ]
 
 class NumberError(RuntimeError):
@@ -102,3 +103,22 @@ class AsyncReadNumber(_ReadNumber,AsyncEvtHandler):
     Async version.
     """
     pass
+
+class SyncPlay(SyncEvtHandler):
+	"""
+	This event handler plays a sound and returns when it has finished.
+
+	Sync version. There is no async version because you get an event with the result anyway.
+	"""
+	def __init__(self, prev, resource):
+		super().__init__(prev)
+		self.resource = resource
+		self.channel = prev.channel
+	
+	async def on_start(self):
+		p = await self.channel.play(media=self.resource)
+		p.on_event("PlaybackFinished", self.on_play_end)
+
+	def on_play_end(self, evt):
+		self.done()
+
