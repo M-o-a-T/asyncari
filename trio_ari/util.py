@@ -28,9 +28,9 @@ class DigitTimeoutError(TimeoutError):
 
 class _ReadNumber(DTMFHandler):
     _digit_timer = None
-    _total_timer = none
+    _total_timer = None
 
-    def __init__(self, timeout=60, first_digit_timeout=None, digit_timeout=10, max_len=15, min_len=5):
+    def __init__(self, prev, timeout=60, first_digit_timeout=None, digit_timeout=10, max_len=15, min_len=5):
         if first_digit_timeout is None:
             first_digit_timeout = digit_timeout
         self.total_timeout = timeout
@@ -39,7 +39,7 @@ class _ReadNumber(DTMFHandler):
         self.min_len = min_len
         self.max_len = max_len
 
-        super().__init__()
+        super().__init__(prev)
 
     async def _digit_timer_(self, task_status=trio.TASK_STATUS_IGNORED):
         try:
@@ -47,7 +47,7 @@ class _ReadNumber(DTMFHandler):
                 self._digit_timer = sc
                 task_status.started()
                 await trio.sleep(math.inf)
-        except trio.TooSlow:
+        except trio.TooSlowError:
             raise DigitTimeoutError() from None
 
     async def _total_timer_(self, task_status=trio.TASK_STATUS_IGNORED):
@@ -56,7 +56,7 @@ class _ReadNumber(DTMFHandler):
                 self._total_timer = sc
                 task_status.started()
                 await trio.sleep(math.inf)
-        except trio.TooSlow:
+        except trio.TooSlowError:
             raise NumberTimeoutError() from None
 
     def done(self, res):
@@ -69,19 +69,19 @@ class _ReadNumber(DTMFHandler):
         await self.nursery.start(self._digit_timer_)
         await self.nursery.start(self._total_timer_)
 
-    async def dtmf_digit(self, evt):
-        if len(self._num) >= self.min_len:
-            raise NumberTooLong(self._num)
+    async def on_dtmf_digit(self, evt):
+        if len(self._num) >= self.max_len:
+            raise NumberTooLongError(self._num)
         self._num += evt.digit
         self._digit_timer.deadline = trio.current_time()+self.digit_timeout
 
-    async def dtmf_star(self, evt):
+    async def on_dtmf_Star(self, evt):
         self._num = ""
         self._digit_timer.deadline = trio.current_time()+self.first_digit_timeout
 
-    async def dtmf_pound(self, evt):
+    async def on_dtmf_Pound(self, evt):
         if len(self._num) < self.min_len:
-            raise NumberTooShort(self._num)
+            raise NumberTooShortError(self._num)
         self.done(self._num)
 
 class SyncReadNumber(_ReadNumber,SyncEvtHandler):
