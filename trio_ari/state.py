@@ -503,6 +503,7 @@ class DTMFHandler:
 		"""Dispatch DTMF events.
 
 		Calls ``on_dtmf_{0-9,A-D,Hash,Pound}`` methods.
+		If that doesn't exist and a letter is dialled, call ``on_dtmf_letter``.
 		If that doesn't exist and a digit is dialled, call ``on_dtmf_digit``.
 		If that doesn't exist either, call ``on_dtmf``.
 		If that doesn't exist either, punt to calling state machine.
@@ -516,6 +517,8 @@ class DTMFHandler:
 		proc = getattr(self,'on_dtmf_'+digit, None)
 		if proc is None and digit >= '0' and digit <= '9':
 			proc = getattr(self,'on_dtmf_digit', None)
+		if proc is None and digit >= 'A' and digit <= 'D':
+			proc = getattr(self,'on_dtmf_letter', None)
 		if proc is None:
 			proc = getattr(self,'on_dtmf', None)
 
