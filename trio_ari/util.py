@@ -10,22 +10,24 @@ import math
 from .state import SyncEvtHandler, AsyncEvtHandler, DTMFHandler
 
 __all__ = [
-        "NumberError", "NumberTooShortError", "NumberTooLongError", "TimeoutError", "NumberTimeoutError", "DigitTimeoutError", 
+        "NumberError", "NumberLengthError", "NumberTooShortError", "NumberTooLongError", "NumberTimeoutError", "TotalTimeoutError", "DigitTimeoutError", 
         "SyncReadNumber", "AsyncReadNumber",
         "SyncPlay",
         ]
 
 class NumberError(RuntimeError):
     pass
-class NumberTooShortError(NumberError):
+class NumberLengthError(NumberError):
     pass
-class NumberTooLongError(NumberError):
+class NumberTooShortError(NumberLengthError):
     pass
-class TimeoutError(RuntimeError):
+class NumberTooLongError(NumberLengthError):
     pass
-class NumberTimeoutError(TimeoutError):
+class NumberTimeoutError(NumberError):
     pass
-class DigitTimeoutError(TimeoutError):
+class TotalTimeoutError(NumberTimeoutError):
+    pass
+class DigitTimeoutError(NumberTimeoutError):
     pass
 
 class _ReadNumber(DTMFHandler):
