@@ -55,6 +55,11 @@ class Client:
         self._id_seq += 1
         return "%s.%s%d" % (self._id_name, typ, self._id_seq)
         
+    def is_my_id(self, id):
+        if id == self._id_name:
+            return True
+        return id.startswith(self._id_name+'.')
+
     async def __aenter__(self):
         await self._init()
         await self.nursery.start(self._run)
