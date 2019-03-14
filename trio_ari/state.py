@@ -91,8 +91,10 @@ class BaseEvtHandler:
 	:class:`BridgeState`.
 	"""
 	# Internally, start_task starts a separate task that enters this state machine's context.
-	# Entering the context starts _run, which creates the loop's nursery and then executes .run,
-	# which loops over incoming events and processes them.
+	# Entering the context starts _run_with_nursery, which creates the
+	# loop's nursery and then executes .run, which loops over incoming
+	# events and processes them.
+	# 
 	# Calling .done cancels the nursery's context, thus terminates everything that's internal.
 	# Awaiting the handler itself waits for the internal loop to end.
 
@@ -131,8 +133,6 @@ class BaseEvtHandler:
 		self.client = client
 		self._base_nursery = nursery or client.nursery
 
-		self._send, self._recv = trio.open_memory_channel(20)
-
 	async def start_task(self):
 		"""This is a shortcut for running this object's async context
 		manager / event loop in a separate task."""
@@ -147,10 +147,7 @@ class BaseEvtHandler:
 		"""
 		Context manager to run this state machine's "run" method / main loop.
 		"""
-		assert self._done is None, self._done
-		self._done = trio.Event()
-
-		await self._base_nursery.start(self._run, name="Run:"+repr(self))
+		await self._base_nursery.start(self._run_with_nursery, name="run "+repr(self))
 		return self
 
 	@property
@@ -161,13 +158,30 @@ class BaseEvtHandler:
 		else:
 			return self._nursery
 
-	async def _run(self, task_status=trio.TASK_STATUS_IGNORED):
+	async def _run_with_nursery(self, *, task_status=trio.TASK_STATUS_IGNORED):
 		try:
+			assert self._done is None, self._done
+			self._done = trio.Event()
+			self._send, self._recv = trio.open_memory_channel(20)
+
 			async with trio.open_nursery() as nursery:
 				self._nursery = nursery
 				await self.run(task_status=task_status)
 		finally:
 			self._nursery = None
+			self._done.set()
+			self._done = None
+			await self._send.aclose()
+
+			# Any unprocessed events get relegated to the parent
+			while True:
+				try:
+					evt = self._recv.receive_nowait()
+				except trio.EndOfChannel:
+					break
+				else:
+					await self._handle_prev(evt)
+
 
 	def done(self):
 		"""Signal that this event handler has finished.
@@ -178,25 +192,12 @@ class BaseEvtHandler:
 		if self._nursery is not None:
 			self._nursery.cancel_scope.cancel()
 
-		if self._done is not None:
-			self._done.set()
 
 	async def __aexit__(self, *tb):
-		self._nursery.cancel_scope.cancel()
+		self.done()
 
-		self._done.set()
-		self._done = None
-
-		await self._send.aclose()
-
-		# Any unprocessed events get relegated to the parent
-		while True:
-			try:
-				evt = self._recv.receive_nowait()
-			except trio.EndOfChannel:
-				break
-			else:
-				await self._handle_prev(evt)
+		if self._done is not None:
+			await self._done.wait()
 
 
 	def done_sub(self):
@@ -210,6 +211,7 @@ class BaseEvtHandler:
 		self._sub.done()
 		self._sub = None
 		return True
+
 
 	async def handle(self, evt):
 		"""Dispatch a single event to this handler.
@@ -262,8 +264,10 @@ class BaseEvtHandler:
 
 		You must call :meth:`_handle_prev` on events you don't recognize.
 
-		This method uses a runner task that do the actual event processing.
+		This method creates a runner task that do the actual event processing.
 		A new runner is started if processing an event takes longer than 0.1 seconds.
+
+		Do not replace this method. Do not call it directly.
 		"""
 		log.debug("StartRun %s", self)
 		task_status.started()
@@ -396,21 +400,19 @@ class _EvtHandler(BaseEvtHandler):
 		await self._prev._handle_here(evt)
 		return True
 
-	async def __aenter__(self):
+	async def _run_with_nursery(self, **kw):
 		# the event handler stack doesn't allow branches
 		if self._prev._sub is not None:
 			raise RuntimeError("Our parent already has a sub-handler")
 		self._prev._sub = self
 
-		return await super().__aenter__()
+		try:
+			await super()._run_with_nursery(**kw)
 
-	async def __aexit__(self, *tb):
-		# the event handler stack doesn't allow inconsistency
-		if self._prev._sub is not self:
-			raise RuntimeError("Problem nesting event handlers")
-		self._prev._sub = None
-
-		return await super().__aexit__(*tb)
+		finally:
+			if self._prev._sub is not self:
+				raise RuntimeError("Problem nesting event handlers")
+			self._prev._sub = None
 
 	def __await__(self):
 		# alias "await Handler()" to "await Handler()._await()"
@@ -447,9 +449,9 @@ class AsyncEvtHandler(_EvtHandler):
 	Alternately, use :class:`SyncEvtHandler` in a separate task.
 
 	"""
-	async def _run(self, task_status=trio.TASK_STATUS_IGNORED):
+	async def _run_with_nursery(self, *, task_status=trio.TASK_STATUS_IGNORED):
 		try:
-			await super()._run(task_status=task_status)
+			await super()._run_with_nursery(task_status=task_status)
 		except Exception as exc:
 			await self._handle_prev(_ErrorEvent(exc))
 		except trio.Cancelled:
@@ -493,8 +495,13 @@ class SyncEvtHandler(_EvtHandler):
 
 	Alternately, use :class:`AsyncEvtHandler` and `on_result`.
 	"""
+
 	async def _await(self):
-		await self._run_ctx()
+		"""This does not use context management, because we want to get errors."""
+		await self._run_with_nursery()
+
+		if isinstance(self._result, Exception):
+			raise self._result
 		return self._result
 
 
@@ -649,7 +656,7 @@ class BridgeState(_ThingEvtHandler):
 			return ch
 		else:
 			s = State(ch)
-			await self.client.nursery.start(s.run)
+			await s.start_task()
 			return s
 
 	async def calling(self, State=None, timeout=None, **kw):
@@ -673,7 +680,9 @@ class BridgeState(_ThingEvtHandler):
 		return CallManager(self, State=State, timeout=timeout, **kw)
 
 	async def on_StasisStart(self, evt):
-		"""Hook for channel creation. Call when overriding!"""
+		"""Hook for channel creation. Connects the channel to this bridge.
+		
+		Call when overriding!"""
 		ch = evt.channel
 		await self.bridge.addChannel(channel=ch.id)
 
