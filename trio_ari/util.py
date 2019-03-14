@@ -110,16 +110,16 @@ class SyncPlay(SyncEvtHandler):
 
 	Sync version. There is no async version because you get an event with the result anyway.
 	"""
-	def __init__(self, prev, resource):
+	def __init__(self, prev, media):
 		super().__init__(prev)
-		self.resource = resource
+		self.media = media
 		cb = getattr(prev, 'bridge', None)
 		if cb is None:
 			cb = prev.channel
 		self.chan_or_bridge = cb
 	
 	async def on_start(self):
-		p = await self.chan_or_bridge.play(media=self.resource)
+		p = await self.chan_or_bridge.play(media=self.media)
 		p.on_event("PlaybackFinished", self.on_play_end)
 
 	def on_play_end(self, evt):
