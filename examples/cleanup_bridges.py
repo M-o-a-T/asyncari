@@ -8,6 +8,8 @@
 #
 import trio_ari
 import trio
+from asks.errors import BadStatus
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -20,7 +22,6 @@ ast_url = os.getenv("AST_URL", 'http://%s:%d/'%(ast_host,ast_port))
 ast_username = os.getenv("AST_USER", 'asterisk')
 ast_password = os.getenv("AST_PASS", 'asterisk')
 ast_app = os.getenv("AST_APP", 'hello')
-ast_outgoing = os.getenv("AST_OUTGOING", 'SIP/blink')
 
 async def clean_bridges(client):
     #
@@ -29,14 +30,18 @@ async def clean_bridges(client):
     for b in await client.bridges.list():
         if b.channels:
             continue
-        logger.info("REMOVE: %r",b)
-        await b.destroy()
+        try:
+            await b.destroy()
+        except BadStatus as exc:
+            print(b.id,exc)
+        else:
+            print(b.id,"… deleted")
 
 async def main():
     async with trio_ari.connect(ast_url, ast_app, ast_username,ast_password) as client:
         await clean_bridges(client)
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
     trio.run(main)
 
