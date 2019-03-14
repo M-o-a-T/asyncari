@@ -451,18 +451,18 @@ class AsyncEvtHandler(_EvtHandler):
 		try:
 			await super()._run(task_status=task_status)
 		except Exception as exc:
-			await self._handle_prev(ErrorEvent(exc))
+			await self._handle_prev(_ErrorEvent(exc))
 		except trio.Cancelled:
 			if self._done.is_set():
-				await self._handle_prev(ResultEvent(self._result))
+				await self._handle_prev(_ResultEvent(self._result))
 			else:
-				await self._handle_prev(ErrorEvent(CancelledError()))
+				await self._handle_prev(_ErrorEvent(CancelledError()))
 			raise
 		except BaseException:
-			await self._handle_prev(ErrorEvent(CancelledError()))
+			await self._handle_prev(_ErrorEvent(CancelledError()))
 			raise
 		else:
-			await self._handle_prev(ResultEvent(self._result))
+			await self._handle_prev(_ResultEvent(self._result))
 
 	async def _await(self):
 		await self._start_task()
