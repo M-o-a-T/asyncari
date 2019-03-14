@@ -419,7 +419,8 @@ class _EvtHandler(BaseEvtHandler):
 	def done(self, result=None):
 		"""Signal that this event handler has finished with this result.
 		"""
-		self._result = result
+		if result is not None:
+			self._result = result
 		super().done()
 
 	async def _await(self):
