@@ -6,6 +6,7 @@ Helper state machines
 
 import trio
 import math
+from asks.errors import BadStatus
 
 from .state import SyncEvtHandler, AsyncEvtHandler, DTMFHandler
 
@@ -34,7 +35,7 @@ class _ReadNumber(DTMFHandler):
     _digit_timer = None
     _total_timer = None
 
-    def __init__(self, prev, timeout=60, first_digit_timeout=None, digit_timeout=10, max_len=15, min_len=5):
+    def __init__(self, prev, playback=None, timeout=60, first_digit_timeout=None, digit_timeout=10, max_len=15, min_len=5):
         if first_digit_timeout is None:
             first_digit_timeout = digit_timeout
         self.total_timeout = timeout
@@ -42,6 +43,7 @@ class _ReadNumber(DTMFHandler):
         self.first_digit_timeout = first_digit_timeout
         self.min_len = min_len
         self.max_len = max_len
+        self.playback = playback
 
         super().__init__(prev)
 
@@ -52,7 +54,16 @@ class _ReadNumber(DTMFHandler):
                 task_status.started()
                 await trio.sleep(math.inf)
         except trio.TooSlowError:
+            await self._stop_playing()
             raise DigitTimeoutError() from None
+
+    async def _stop_playing(self):
+        if self.playback is not None:
+            pb, self.playback = self.playback, None
+            try:
+                await pb.stop()
+            except BadStatus:
+                pass
 
     async def _total_timer_(self, task_status=trio.TASK_STATUS_IGNORED):
         try:
@@ -61,6 +72,7 @@ class _ReadNumber(DTMFHandler):
                 task_status.started()
                 await trio.sleep(math.inf)
         except trio.TooSlowError:
+            await self._stop_playing()
             raise NumberTimeoutError() from None
 
     def done(self, res):
@@ -74,6 +86,7 @@ class _ReadNumber(DTMFHandler):
         await self.nursery.start(self._total_timer_)
 
     async def on_dtmf_digit(self, evt):
+        await self._stop_playing()
         if len(self._num) >= self.max_len:
             raise NumberTooLongError(self._num)
         self._num += evt.digit
@@ -84,6 +97,7 @@ class _ReadNumber(DTMFHandler):
         self._digit_timer.deadline = trio.current_time()+self.first_digit_timeout
 
     async def on_dtmf_Pound(self, evt):
+        await self._stop_playing()
         if len(self._num) < self.min_len:
             raise NumberTooShortError(self._num)
         self.done(self._num)
