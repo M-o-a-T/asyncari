@@ -162,9 +162,12 @@ class BaseEvtHandler:
 			return self._nursery
 
 	async def _run(self, task_status=trio.TASK_STATUS_IGNORED):
-		async with trio.open_nursery() as nursery:
-			self._nursery = nursery
-			await self.run(task_status=task_status)
+		try:
+			async with trio.open_nursery() as nursery:
+				self._nursery = nursery
+				await self.run(task_status=task_status)
+		finally:
+			self._nursery = None
 
 	def done(self):
 		"""Signal that this event handler has finished.
