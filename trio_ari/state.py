@@ -575,9 +575,9 @@ class BridgeState(_ThingEvtHandler):
 	calls = set()
 	bridge = None
 
-	def __init__(self, bridge):
+	def __init__(self, bridge, **kw):
 		self.bridge = bridge
-		super().__init__(bridge.client)
+		super().__init__(bridge.client, **kw)
 
 	@classmethod
 	def new(cls, client, type="mixing", **kw):
