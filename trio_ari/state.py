@@ -57,7 +57,7 @@ class _ErrorEvent:
 def as_task(proc):
 	@functools.wraps(proc)
 	async def worker(self, *a, **kw):
-		self.nursery.start_soon(functools.partial(proc, self, *a, **kw))
+		self.nursery.start_soon(functools.partial(proc, self, *a, **kw), name=proc.__name__)
 	assert inspect.iscoroutinefunction(proc)
 	return worker
 
@@ -136,7 +136,7 @@ class BaseEvtHandler:
 	async def start_task(self):
 		"""This is a shortcut for running this object's async context
 		manager / event loop in a separate task."""
-		await self._base_nursery.start(self._run_ctx)
+		await self._base_nursery.start(self._run_ctx, name="start_task "+self.ref.id)
 
 	async def _run_ctx(self, task_status=trio.TASK_STATUS_IGNORED):
 		async with self:
@@ -272,7 +272,7 @@ class BaseEvtHandler:
 		self._proc_lock = trio.Lock()
 		while True:
 			if self._n_proc == 0:
-				await self.nursery.start(self._process)
+				await self.nursery.start(self._process, name="Worker "+self.ref.id)
 			self._proc_check = trio.Event()
 			await trio.sleep(0.1)
 			await self._proc_check.wait()
