@@ -1,3 +1,9 @@
+trio-ari (0.2.4-2) unstable; urgency=medium
+
+  * Another dumb error
+
+ -- Matthias Urlichs <matthias@urlichs.de>  Fri, 15 Mar 2019 12:11:29 +0100
+
 trio-ari (0.2.4-1) unstable; urgency=medium
 
   * some minor fixes

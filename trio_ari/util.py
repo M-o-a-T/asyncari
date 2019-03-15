@@ -130,7 +130,7 @@ class _ReadNumber(DTMFHandler):
         self.set_timeout()
 
     def set_timeout(self):
-        self._digit_timer.deadline = trio.current_time() + (self.digit_timeout if num else self.first_digit_timeout)
+        self._digit_timer.deadline = trio.current_time() + (self.digit_timeout if self.num else self.first_digit_timeout)
 
 
 class SyncReadNumber(_ReadNumber,SyncEvtHandler):
