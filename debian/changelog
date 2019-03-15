@@ -1,3 +1,10 @@
+trio-ari (0.2.1-1) unstable; urgency=medium
+
+  * Lots of bug fixes.
+  * Ability override number recognition.
+
+ -- Matthias Urlichs <matthias@urlichs.de>  Fri, 15 Mar 2019 11:21:36 +0100
+
 trio-ari (0.1.2-1) unstable; urgency=medium
 
   * integrate state machine changes

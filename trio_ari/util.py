@@ -47,6 +47,37 @@ class _ReadNumber(DTMFHandler):
 
         super().__init__(prev)
 
+    def add_digit(self, digit):
+        """
+        Add this digit to the current number.
+
+        The default clears the number on '*' and returns it on '#',
+        assuming that the length restrictions are obeyed.
+
+        This method may call `self.done` with the dialled number, update
+        `self.num`, or raise an exception.
+        
+        This method may be a coroutine.
+        """
+        if digit == '*':
+            self.num = ""
+        elif digit == '#':
+            if len(self.num) < self.min_len:
+                raise NumberTooShortError(self.num)
+            self.done(self.num)
+        else:
+            self.num += digit
+            if len(self.num) > self.max_len:
+                raise NumberTooLongError(self.num)
+
+    async def _stop_playing(self):
+        if self.playback is not None:
+            pb, self.playback = self.playback, None
+            try:
+                await pb.stop()
+            except BadStatus:
+                pass
+
     async def _digit_timer_(self, task_status=trio.TASK_STATUS_IGNORED):
         try:
             with trio.fail_after(self.first_digit_timeout) as sc:
@@ -56,14 +87,6 @@ class _ReadNumber(DTMFHandler):
         except trio.TooSlowError:
             await self._stop_playing()
             raise DigitTimeoutError() from None
-
-    async def _stop_playing(self):
-        if self.playback is not None:
-            pb, self.playback = self.playback, None
-            try:
-                await pb.stop()
-            except BadStatus:
-                pass
 
     async def _total_timer_(self, task_status=trio.TASK_STATUS_IGNORED):
         try:
@@ -81,26 +104,26 @@ class _ReadNumber(DTMFHandler):
         self._total_timer.cancel()
 
     async def on_start(self):
-        self._num = ""
+        self.num = ""
         await self.nursery.start(self._digit_timer_)
         await self.nursery.start(self._total_timer_)
 
-    async def on_dtmf_digit(self, evt):
-        await self._stop_playing()
-        if len(self._num) >= self.max_len:
-            raise NumberTooLongError(self._num)
-        self._num += evt.digit
-        self._digit_timer.deadline = trio.current_time()+self.digit_timeout
+    async def on_dtmf_letter(self, evt):
+        """Ignore DTMF letters (A-D)."""
+        pass
 
-    async def on_dtmf_Star(self, evt):
-        self._num = ""
-        self._digit_timer.deadline = trio.current_time()+self.first_digit_timeout
-
-    async def on_dtmf_Pound(self, evt):
+    async def on_dtmf(self, evt):
         await self._stop_playing()
-        if len(self._num) < self.min_len:
-            raise NumberTooShortError(self._num)
-        self.done(self._num)
+        res = self.add_digit(evt.digit)
+        if inspect.iscoroutine(r):
+            res = await res
+        if isinstance(res, str):
+            self.num = res
+        self.set_timeout()
+
+    def set_timeout(self):
+        self._digit_timer.deadline = trio.current_time() + (self.digit_timeout if num else self.first_digit_timeout)
+
 
 class SyncReadNumber(_ReadNumber,SyncEvtHandler):
     """
