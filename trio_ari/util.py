@@ -6,6 +6,7 @@ Helper state machines
 
 import trio
 import math
+import inspect
 from asks.errors import BadStatus
 
 from .state import SyncEvtHandler, AsyncEvtHandler, DTMFHandler
