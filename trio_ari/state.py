@@ -115,7 +115,7 @@ class BaseEvtHandler:
 
 	# Our event channel
 	_send = None
-	_rev = None
+	_recv = None
 
 	# If this is a model-based toplevel handler, this is the name of the attribute it's based on
 	_src = None

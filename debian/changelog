@@ -1,3 +1,9 @@
+trio-ari (0.2.3-2) unstable; urgency=medium
+
+  * typo
+
+ -- Matthias Urlichs <matthias@urlichs.de>  Fri, 15 Mar 2019 11:59:16 +0100
+
 trio-ari (0.2.3-1) unstable; urgency=medium
 
   * ref may be None
