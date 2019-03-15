@@ -18,7 +18,13 @@ __all__ = [
         ]
 
 class NumberError(RuntimeError):
-    pass
+    """Base class for things that can go wrong entering a number.
+    Attributes:
+        number:
+            The (partial, wrong, …) number that's been dialled so far.
+    """
+    def __init__(self, num):
+        self.number = num
 class NumberLengthError(NumberError):
     pass
 class NumberTooShortError(NumberLengthError):
@@ -87,7 +93,7 @@ class _ReadNumber(DTMFHandler):
                 await trio.sleep(math.inf)
         except trio.TooSlowError:
             await self._stop_playing()
-            raise DigitTimeoutError() from None
+            raise DigitTimeoutError(self.num) from None
 
     async def _total_timer_(self, task_status=trio.TASK_STATUS_IGNORED):
         try:
@@ -97,7 +103,7 @@ class _ReadNumber(DTMFHandler):
                 await trio.sleep(math.inf)
         except trio.TooSlowError:
             await self._stop_playing()
-            raise NumberTimeoutError() from None
+            raise NumberTimeoutError(self.num) from None
 
     def done(self, res):
         super().done(res)
