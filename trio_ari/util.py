@@ -62,7 +62,8 @@ class _ReadNumber(DTMFHandler):
         assuming that the length restrictions are obeyed.
 
         This method may call `self.done` with the dialled number, update
-        `self.num`, or raise an exception.
+        `self.num`, or raise an exception. A string is used to replace the
+        current temporary number.
         
         This method may be a coroutine.
         """
