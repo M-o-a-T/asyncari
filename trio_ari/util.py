@@ -123,7 +123,7 @@ class _ReadNumber(DTMFHandler):
     async def on_dtmf(self, evt):
         await self._stop_playing()
         res = self.add_digit(evt.digit)
-        if inspect.iscoroutine(r):
+        if inspect.iscoroutine(res):
             res = await res
         if isinstance(res, str):
             self.num = res
