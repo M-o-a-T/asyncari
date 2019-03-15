@@ -173,7 +173,7 @@ class Client:
                 await self.process_ws(msg_json)
             finally:
                 await send_q.send(None)
-        send_q.close()
+        await send_q.aclose()
 
     async def _init(self, RepositoryFactory=Repository):
         await self.swagger.init()

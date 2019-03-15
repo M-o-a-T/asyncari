@@ -1,3 +1,9 @@
+trio-ari (0.2.2-1) unstable; urgency=medium
+
+  * Channels don#t have `.close` methods.
+
+ -- Matthias Urlichs <matthias@urlichs.de>  Fri, 15 Mar 2019 11:31:09 +0100
+
 trio-ari (0.2.1-1) unstable; urgency=medium
 
   * Lots of bug fixes.
