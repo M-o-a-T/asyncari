@@ -1,3 +1,9 @@
+trio-ari (0.2.4-1) unstable; urgency=medium
+
+  * some minor fixes
+
+ -- Matthias Urlichs <matthias@urlichs.de>  Fri, 15 Mar 2019 12:09:48 +0100
+
 trio-ari (0.2.3-3) unstable; urgency=medium
 
   * missing import
