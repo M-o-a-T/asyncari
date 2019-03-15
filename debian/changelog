@@ -1,3 +1,9 @@
+trio-ari (0.2.3-1) unstable; urgency=medium
+
+  * ref may be None
+
+ -- Matthias Urlichs <matthias@urlichs.de>  Fri, 15 Mar 2019 11:56:33 +0100
+
 trio-ari (0.2.2-1) unstable; urgency=medium
 
   * Channels don#t have `.close` methods.
