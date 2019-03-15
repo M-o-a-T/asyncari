@@ -800,34 +800,33 @@ class BridgeState(_ThingEvtHandler):
 		if ch.state == "Up":
 			await self.on_connected(ch)
 
-	async def teardown(self, skip_ch=None, hangup_reason="normal"):
+	async def teardown(self, hangup_reason="normal"):
 		"""Removes all channels from the bridge and destroys it.
 
-		If `hangup_reason` is `None`, leave the channels alone;
-		otherwise (the default) they're disconnected.
+		All remaining channels are hung up.
 
 		This method is typically called when leaving the bridge's context
 		manager. If you want to keep it online, e.g. for being able to
 		cleanly restart a PBX without downtime, you may override this --
 		but you're then responsible for recovering state after restarting,
-		and you still need to clean up bridge that are closed normally.
+		and you still need to clean up bridges that are no longer needed.
 
 		"""
-		log.info("TEARDOWN %s %s",self,self.bridge.channels)
-		for ch in list(self.bridge.channels)+list(self.calls):
-			if hangup_reason:
+		with trio.move_on_after(2) as s:
+			s.shield = True
+			log.info("TEARDOWN %s %s",self,self.bridge.channels)
+			for ch in list(self.bridge.channels)+list(self.calls):
 				try:
 					await ch.hang_up(reason=hangup_reason)
 				except Exception as exc:
 					log.info("%s gone: %s", ch, exc)
-			if ch is skip_ch:
-				continue
-			try:
-				await self.bridge.removeChannel(channel=ch.id)
-			except Exception as exc:
-				log.info("%s detached: %s", ch, exc)
 
-		await self.bridge.destroy()
+				try:
+					await self.bridge.removeChannel(channel=ch.id)
+				except Exception as exc:
+					log.info("%s detached: %s", ch, exc)
+
+			await self.bridge.destroy()
 
 
 class HangupBridgeState(BridgeState):

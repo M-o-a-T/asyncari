@@ -1,3 +1,10 @@
+trio-ari (0.2.5-1) unstable; urgency=medium
+
+  * Bridge teardown shielded
+  * … no longer accepts a channel to partially-skip
+
+ -- Matthias Urlichs <matthias@urlichs.de>  Fri, 15 Mar 2019 12:26:40 +0100
+
 trio-ari (0.2.4-2) unstable; urgency=medium
 
   * Another dumb error
