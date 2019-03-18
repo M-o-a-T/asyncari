@@ -1,0 +1,8 @@
+#!/bin/sh -e
+t=$(git name-rev --tags --name-only HEAD)
+if test "$t" = "undefined" ; then
+    t=$(dpkg-parsechangelog | sed -ne 's/^Version:[[:space:]]*\(.*\)-.*/\1/p')
+    git tag $t
+fi
+
+echo $t
