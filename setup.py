@@ -15,6 +15,9 @@ setup(
     author_email="matthias@urlichs.de",
     license="MIT -or- Apache License 2.0",
     packages=find_packages(),
+    setup_requires=[
+        "setuptools_scm",
+    ],
     install_requires=[
         "trio>=0.11",
         "trio_swagger11",
