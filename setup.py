@@ -1,12 +1,13 @@
 from setuptools import setup, find_packages
 
-exec(open("trio_ari/_version.py", encoding="utf-8").read())
-
 LONG_DESC = open("README.rst", encoding="utf-8").read()
 
 setup(
     name="trio-ari",
-    version=__version__,
+    use_scm_version={
+        "version_scheme": "guess-next-dev",
+        "local_scheme": "dirty-tag"
+    },
     description="A Trio-ified adapter for the Asterisk ARI interface",
     url="https://github.com/M-o-a-T/trio-ari",
     long_description=open("README.rst").read(),

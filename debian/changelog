@@ -1,3 +1,9 @@
+trio-ari (0.2.7-1) unstable; urgency=medium
+
+  * Fix versioning
+
+ -- Matthias Urlichs <matthias@urlichs.de>  Mon, 18 Mar 2019 11:21:21 +0100
+
 trio-ari (0.2.6-1) unstable; urgency=medium
 
   * Fix hangup handling
