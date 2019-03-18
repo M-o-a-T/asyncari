@@ -371,6 +371,10 @@ class Channel(BaseObject):
     # last is better
     REASONS = ( "congestion", "no_answer", "busy", "normal" )
 
+    def hangup(self,reason=None):
+        import pdb;pdb.set_trace()
+        raise
+
     def _init(self):
         super()._init()
         self.playbacks = set()
@@ -412,7 +416,8 @@ class Channel(BaseObject):
         channel to a non-Stasis dialplan entry instead.
         """
         try:
-            await self.hangup(reason=reason)
+            if self._do_hangup is not False:
+                await self.hangup(reason=reason)
         except BadStatus as e:
             # Ignore 404's, since channels can go away before we get to them
             if e.status_code != NOT_FOUND:
@@ -426,14 +431,13 @@ class Channel(BaseObject):
         if self._reason is None:
             with trio.move_on_after(self.hangup_delay):
                 await self._reason_seen.wait()
-        if not self._do_hangup:
-            return
-        self._do_hangup = False
 
         try:
             await self.exit_hangup(reason=(self._reason or "normal"))
         except Exception as exc:
             log.warning("Hangup %s: %s", self, exc)
+
+        self._do_hangup = False
 
     async def do_event(self, msg):
         if msg.type == "StasisStart":
