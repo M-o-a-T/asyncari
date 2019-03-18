@@ -1,3 +1,9 @@
+trio-ari (0.2.6-1) unstable; urgency=medium
+
+  * Fix hangup handling
+
+ -- Matthias Urlichs <matthias@urlichs.de>  Mon, 18 Mar 2019 11:19:07 +0100
+
 trio-ari (0.2.5-1) unstable; urgency=medium
 
   * Bridge teardown shielded
