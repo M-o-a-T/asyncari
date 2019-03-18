@@ -371,10 +371,6 @@ class Channel(BaseObject):
     # last is better
     REASONS = ( "congestion", "no_answer", "busy", "normal" )
 
-    def hangup(self,reason=None):
-        import pdb;pdb.set_trace()
-        raise
-
     def _init(self):
         super()._init()
         self.playbacks = set()
