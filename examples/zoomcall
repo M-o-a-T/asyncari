@@ -1,0 +1,205 @@
+#!/usr/bin/python3
+
+"""Zoom SIP API
+
+The Zoom SIP dialin is ugly. The announcement is almost unhearable and the
+thing reacts strangely when you enter a wrong meeting password.
+
+This script implements a reasonable dial-in.
+"""
+
+#
+# Copyright (c) 2018, Matthias Urlichs
+#
+
+import trio_ari
+from trio_ari.state import ToplevelChannelState, as_task, HangupBridgeState
+from trio_ari.util import SyncReadNumber, SyncPlay, NumberError
+import trio
+from functools import partial
+import jwt
+from datetime import datetime,timedelta
+import sys
+
+import asks
+from asks.errors import BadStatus
+from time import time
+from pprint import pprint
+
+import os
+ast_host = os.getenv("AST_HOST", 'localhost')
+ast_port = int(os.getenv("AST_ARI_PORT", 8088))
+ast_url = os.getenv("AST_URL", 'http://%s:%d/'%(ast_host,ast_port))
+ast_username = os.getenv("AST_USER", 'asterisk')
+ast_password = os.getenv("AST_PASS", 'asterisk')
+ast_app = os.getenv("AST_APP", 'zoom')
+
+zoom_url = "https://COMPANY.zoom.us/v2/"
+zoom_key = "YourKeyForTheZoomAPIx"
+zoom_secret = "xYourSecretForTheZoomAPIxDontxSharex"
+
+sound_dir="zoomcall"  # needs to be in, or linked from, /usr/share/asterisk/sounds
+
+import logging
+logger = logging.getLogger(__name__)
+
+NOT_FOUND = 404
+
+def generateJWT():
+    # Zoom API credentials from https://developer.zoom.us/me/
+    token = dict(iss=zoom_key, exp=int(time()) + 60)
+    return jwt.encode(token, zoom_secret, algorithm='HS256')
+
+
+async def getZoomPassword(meetingID):
+    n = datetime.now()
+
+    r=await asks.get(zoom_url+"meetings/"+meetingID,
+                     headers=[(b"Authorization", b"Bearer "+generateJWT ())])
+    r.raise_for_status()
+    return r.json()['pstn_password']
+
+class ZoomState(ToplevelChannelState):
+    """
+    Channel handler to connect to Zoom.
+
+    Arguments:
+      room:
+        Room number. If not given, ask.
+      password:
+        Password for the room. Ignored if the room doesn't have one.
+        If True, connect to the room even if it has a password.
+        If None, ask.
+
+    XXX TODO: this is a ToplevelChannelState and as such is not composeable.
+    That should be fixed if you want to do this as part of an IVR.
+    """
+
+    def __init__(self, channel, room=None, password=None):
+        super().__init__(channel)
+        self.room = room
+        self.password = password
+
+    @as_task
+    async def on_start(self):
+        """
+        This is a simple call handler. It asks for a meeting ID (if none
+        given), checks with Zoom whether the channel exists, asks for a
+        password (if one is set and the handler is not instructed to skip
+        it), then calls the ZOOM sip gateway.
+        """
+
+	# We want to be nice to our callers here; some get confused when we
+	# answer immediately (or too fast).
+	try:
+	    await channel.ring()
+	    await trio.sleep(0.5)
+	    await channel.answer()
+	except BadStatus:
+            # Just ignore this call.
+            # Since this is a ToplevelStateChannel, it will auto-hangup when we're done with it
+            # (unless we tell it not to).
+            self.done()
+	    return
+
+        # We could do the same thing as the following block with a bunch of event handlers,
+        # but this way is much more readable.
+
+        # If you want to go the async way, the "Sync…" handlers won't work; use their "Async…"
+        # equivalent. Mixing both styles in the same state machine may cause unwanted effects.
+
+        try:
+            num = self.room
+            pwi = self.password
+
+            if num is None:
+                pb = await self.channel.play(media='sound:'+sound_dir+'/enter_room_number')
+                try:
+                    num = await SyncReadNumber(self, playback=pb, min_len=8, max_len=11, timeout=20)
+                except NumberTimeoutError:
+                    return await SyncPlay(self, media='sound:'+sound_dir+'/timeout')
+                except NumberError:
+                    return await SyncPlay(self, media='sound:'+sound_dir+'/no_such_meeting')
+                # These "return await" calls don't hang up by themselves; that's what the
+                # "finally: self.done()" is for.
+
+            try:
+                pw = await getZoomPassword(num)
+            except BadStatus as exc:
+                if exc.status_code == NOT_FOUND:
+                    return await SyncPlay(self, media='sound:'+sound_dir+'/no_such_meeting')
+                else:
+                    return await SyncPlay(self, media='sound:'+sound_dir+'/internal_error')
+
+            if pw:
+                if not pwi and not pw.isdigit():
+                    return await SyncPlay(self, media='sound:'+sound_dir+'/no_phone_access')
+
+                if not pwi:
+                    pb = await self.channel.play(media='sound:'+sound_dir+'/enter_room_password')
+                    try:
+                        pwi = await SyncReadNumber(self, playback=pb, min_len=len(pw)//2, max_len=len(pw)*3, timeout=20)
+                    except NumberError:
+                        return await SyncPlay(self, media='sound:'+sound_dir+'/wrong_password')
+
+                if pwi is not True and pw != pwi:
+                    return await SyncPlay(self, media='sound:'+sound_dir+'/wrong_password')
+                num += "."+pw
+
+            # Now we're all set, so we need a bridge.
+            async with HangupBridgeState.new(self.client, nursery=self.nursery) as br:
+                # This is a HangupBridge, thus it will de-bridge and hangup all
+                # channels as soon as one of them hangs up. Otherwise we'd have to
+                # create a subclass that has an event handler for on_channel_end.
+
+                await br.add(self.channel)
+                try:
+                    await br.dial(endpoint="SIP/"+num+"@zoom", State=ToplevelChannelState)
+                except Exception:
+                    # Playing an error will happen in the Exception handler below.
+                    raise
+                else:
+                    # … and until we're no longer connected
+                    await self.channel.wait_not_bridged()
+
+        except Exception:
+            logger.exception("Owch")
+            if self.channel.state == "Up":
+                await SyncPlay(self, media='sound:'+sound_dir+'/internal_error')
+
+            # Crashing through here would take the whole app with it.
+
+        finally:
+            # always hang up
+            self.done()
+
+
+async def on_start(objs, event, client):
+    """
+    Callback for StasisStart events.
+
+    """
+    channel = objs['channel']
+    if event['args'][0] == 'dialed':
+        return  # we originated this call; TODO use a nicer method
+
+    # Actually trio-ari also gets StasisStart for outgoing channels, but those are already caught for us.
+    await ZoomState(channel).start_task()
+
+async def main():
+    async with trio_ari.connect(ast_url, ast_app, ast_username,ast_password) as client:
+        async with trio.open_nursery() as n:
+            # Our main entry point.
+            client.on_channel_event('StasisStart', client)
+
+            # Run the WebSocket. Just for laughs ^W debugging we also print all events here,
+            # though a simple "trio.sleep(math.inf)" would be sufficient
+            async for m in client:
+                print("** EVENT **", m)
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG)
+    try:
+        trio.run(main)
+    except KeyboardInterrupt:
+        pass
