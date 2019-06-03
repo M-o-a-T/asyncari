@@ -122,7 +122,7 @@ async def main():
         global client
         client = _client
         await setup()
-        await client.on_channel_event('StasisStart', on_start, client.tg)
+        await client.on_channel_event('StasisStart', on_start, client.taskgroup)
         # Run the WebSocket
         async for m in client:
             pprint(("** EVENT **", m,m._orig_msg))

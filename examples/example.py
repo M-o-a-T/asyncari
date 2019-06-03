@@ -61,7 +61,7 @@ async def on_start(objs, event, client):
     """
     channel = objs['channel']
     await channel.answer()
-    await client.tg.spawn(State(channel).start_task)
+    await client.taskgroup.spawn(State(channel).start_task)
 
 async def main():
     async with asyncari.connect(ast_url, ast_app, ast_username,ast_password) as client:

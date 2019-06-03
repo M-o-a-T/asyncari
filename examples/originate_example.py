@@ -47,7 +47,7 @@ def on_start(objs, event, client):
     # Don't process our own dial
     if event['args'][0] == 'dialed':
         return
-    await client.tg.spawn(_on_start, objs, event, client)
+    await client.taskgroup.spawn(_on_start, objs, event, client)
 
 async def _on_start(objs, event, client):
     """Callback for StasisStart events.

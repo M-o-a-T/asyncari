@@ -113,8 +113,8 @@ class _ReadNumber(DTMFHandler):
 
     async def on_start(self):
         self.num = ""
-        await self.tg.spawn(self._digit_timer_)
-        await self.tg.spawn(self._total_timer_)
+        await self.taskgroup.spawn(self._digit_timer_)
+        await self.taskgroup.spawn(self._total_timer_)
 
     async def on_dtmf_letter(self, evt):
         """Ignore DTMF letters (A-D)."""

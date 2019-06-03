@@ -30,14 +30,14 @@ __all__ = ["Client"]
 class Client:
     """Async ARI Client object.
 
-    :param tg: the AnyIO taskgroup to run our task(s) in.
+    :param taskgroup: the AnyIO taskgroup to run our task(s) in.
     :param apps: the Stasis app(s) to register for.
     :param base_url: Base URL for accessing Asterisk.
     :param http_client: HTTP client interface.
     """
 
-    def __init__(self, tg, base_url, apps, http_client):
-        self.tg = tg
+    def __init__(self, taskgroup, base_url, apps, http_client):
+        self.taskgroup = taskgroup
         self._apps = apps
         url = urllib.parse.urljoin(base_url, "ari/api-docs/resources.json")
         self.swagger = SwaggerClient(http_client=http_client, url=url)
@@ -60,7 +60,7 @@ class Client:
 
     async def __aenter__(self):
         await self._init()
-        await self.tg.spawn(self._run)
+        await self.taskgroup.spawn(self._run)
         return self
 
     async def __aexit__(self, *tb):
@@ -161,7 +161,7 @@ class Client:
         :param ws: WebSocket to drain.
         """
         q = anyio.create_queue(0)
-        await self.tg.spawn(self._check_runtime, q)
+        await self.taskgroup.spawn(self._check_runtime, q)
 
         async for msg in ws:
             if isinstance(msg, CloseConnection):

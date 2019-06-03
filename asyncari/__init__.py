@@ -23,7 +23,7 @@ async def connect(base_url, apps, username, password):
     Usage::
         async with asyncari.connect(base_url, "hello", username, password) as ari:
             async for msg in ari:
-                await ari.tg.spawn(handle_msg, msg)
+                await ari.taskgroup.spawn(handle_msg, msg)
 
     """
     host = urllib.parse.urlparse(base_url).netloc.split(':')[0]

@@ -57,7 +57,7 @@ class _ErrorEvent:
 def as_task(proc):
 	@functools.wraps(proc)
 	async def worker(self, *a, **kw):
-		await self.tg.spawn(functools.partial(proc, self, *a, **kw), name=proc.__name__)
+		await self.taskgroup.spawn(functools.partial(proc, self, *a, **kw), name=proc.__name__)
 	assert inspect.iscoroutinefunction(proc)
 	return worker
 
@@ -128,14 +128,14 @@ class BaseEvtHandler:
 	# Number of tasks working the queue
 	_n_proc = 0
 
-	def __init__(self, client, tg=None):
+	def __init__(self, client, taskgroup=None):
 		self.client = client
-		self._base_tg = tg or client.tg
+		self._base_tg = taskgroup or client.taskgroup
 
 	async def start_task(self):
 		"""This is a shortcut for running this object's async context
 		manager / event loop in a separate task."""
-		await self._base_tg.spawn(self._run_ctx, name="start_task "+self.ref_id)
+		await self._base_taskgroup.spawn(self._run_ctx, name="start_task "+self.ref_id)
 
 	async def _run_ctx(self, evt: anyio.abc.Event = None):
 		assert self._done is None
@@ -153,8 +153,8 @@ class BaseEvtHandler:
 		return self
 
 	@property
-	def tg(self):
-		"""the tg to use"""
+	def taskgroup(self):
+		"""the taskgroup to use"""
 		if self._tg is None:
 			return self._base_tg
 		else:
@@ -285,7 +285,7 @@ class BaseEvtHandler:
 		self._proc_lock = anyio.create_lock()
 		while True:
 			if self._n_proc == 0:
-				await self.tg.spawn(self._process, name="Worker "+self.ref_id)
+				await self.taskgroup.spawn(self._process, name="Worker "+self.ref_id)
 			self._proc_check = anyio.create_event()
 			await anyio.sleep(0.1)
 			await self._proc_check.wait()
@@ -412,7 +412,7 @@ class _EvtHandler(BaseEvtHandler):
 
 	def __init__(self, prev):
 		self._prev = prev
-		super().__init__(prev.client, tg=prev.tg)
+		super().__init__(prev.client, taskgroup=prev.taskgroup)
 
 	async def _handle_prev(self, evt):
 		await self._prev._handle_here(evt)
