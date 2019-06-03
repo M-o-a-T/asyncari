@@ -406,7 +406,7 @@ class Channel(BaseObject):
             await self.set_reason(reason)
         if self._reason is None:
             self._reason_seen = anyio.create_event()
-        await self.client.nursery.start(self._hangup_task)
+        await self.client.tg.spawn(self._hangup_task)
 
     async def exit_hangup(self, reason="normal"):
         """Hang up on exit.

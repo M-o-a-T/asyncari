@@ -36,8 +36,8 @@ class Client:
     :param http_client: HTTP client interface.
     """
 
-    def __init__(self, nursery, base_url, apps, http_client):
-        self.nursery = nursery
+    def __init__(self, tg, base_url, apps, http_client):
+        self.tg = tg
         self._apps = apps
         url = urllib.parse.urljoin(base_url, "ari/api-docs/resources.json")
         self.swagger = SwaggerClient(http_client=http_client, url=url)
@@ -60,12 +60,11 @@ class Client:
 
     async def __aenter__(self):
         await self._init()
-        await self.nursery.start(self._run)
+        await self.tg.spawn(self._run)
         return self
 
     async def __aexit__(self, *tb):
-        async with anyio.fail_after(1) as scope:
-            scope.shield=True
+        async with anyio.fail_after(1, shield=True) as scope:
             await self.close()
 
     async def new_channel(self, State, endpoint, **kw):
@@ -129,7 +128,8 @@ class Client:
         """This gets streamed a message when processing begins, and `None`
         when it ends. Repeat.
         """
-        task_status.started()
+        if evt is not None:
+            await evt.set()
         while True:
             msg = await recv.get()
             if msg is False:
@@ -144,7 +144,7 @@ class Client:
                     assert msg is None
             except TimeoutError:
                 log.error("Processing delayed: %s", msg)
-                t = anyio.current_time()
+                t = await anyio.current_time()
                 # don't hard-fail that fast when debugging
                 async with anyio.fail_after(1 if 'pdb' not in sys.modules else 99):
                     msg = await recv.get()
@@ -152,7 +152,7 @@ class Client:
                         return
                     assert msg is None
                     pass  # processing delayed, you have a problem
-                log.error("Processing recovered after %.2f sec", anyio.current_time()-t)
+                log.error("Processing recovered after %.2f sec", (await anyio.current_time())-t)
 
     async def __run(self, ws):
         """Drains all messages from a WebSocket, sending them to the client's
@@ -161,7 +161,7 @@ class Client:
         :param ws: WebSocket to drain.
         """
         q = anyio.create_queue(0)
-        await self.nursery.start(self._check_runtime, q)
+        await self.tg.spawn(self._check_runtime, q)
 
         async for msg in ws:
             if isinstance(msg, CloseConnection):

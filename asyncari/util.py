@@ -72,7 +72,7 @@ class _ReadNumber(DTMFHandler):
         elif digit == '#':
             if len(self.num) < self.min_len:
                 raise NumberTooShortError(self.num)
-            self.done(self.num)
+            await self.done(self.num)
         else:
             self.num += digit
             if len(self.num) > self.max_len:
@@ -106,10 +106,10 @@ class _ReadNumber(DTMFHandler):
             await self._stop_playing()
             raise NumberTimeoutError(self.num) from None
 
-    def done(self, res):
-        super().done(res)
-        self._digit_timer.cancel()
-        self._total_timer.cancel()
+    async def done(self, res):
+        await super().done(res)
+        await self._digit_timer.cancel()
+        await self._total_timer.cancel()
 
     async def on_start(self):
         self.num = ""
@@ -130,7 +130,7 @@ class _ReadNumber(DTMFHandler):
         self.set_timeout()
 
     def set_timeout(self):
-        self._digit_timer.deadline = anyio.current_time() + (self.digit_timeout if self.num else self.first_digit_timeout)
+        self._digit_timer.deadline = (await anyio.current_time()) + (self.digit_timeout if self.num else self.first_digit_timeout)
 
 
 class SyncReadNumber(_ReadNumber,SyncEvtHandler):
@@ -169,6 +169,6 @@ class SyncPlay(SyncEvtHandler):
 		p = await self.chan_or_bridge.play(media=self.media)
 		p.on_event("PlaybackFinished", self.on_play_end)
 
-	def on_play_end(self, evt):
-		self.done()
+	async def on_play_end(self, evt):
+		await self.done()
 

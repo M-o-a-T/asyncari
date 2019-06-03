@@ -61,7 +61,7 @@ async def on_start(objs, event, client):
     """
     channel = objs['channel']
     await channel.answer()
-    await client.nursery.start(State(channel).run)
+    await client.tg.spawn(State(channel).start_task)
 
 async def main():
     async with asyncari.connect(ast_url, ast_app, ast_username,ast_password) as client:
@@ -73,6 +73,6 @@ async def main():
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     try:
-        anyio.run(main)
+        anyio.run(main, backend="trio")
     except KeyboardInterrupt:
         pass

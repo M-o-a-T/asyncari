@@ -138,6 +138,8 @@ class BaseEvtHandler:
 		await self._base_tg.spawn(self._run_ctx, name="start_task "+self.ref_id)
 
 	async def _run_ctx(self, evt: anyio.abc.Event = None):
+		assert self._done is None
+		self._done = anyio.create_event()
 		async with self:
 			if evt is not None:
 				await evt.set()
@@ -160,8 +162,9 @@ class BaseEvtHandler:
 
 	async def _run_with_tg(self, *, evt: anyio.abc.Event = None):
 		try:
-			assert self._done is None, self._done
-			self._done = anyio.create_event()
+			if self._done is None:
+				self._done = anyio.create_event()
+			assert self._q is None, self._q
 			self._q = anyio.create_queue(20)
 
 			async with anyio.create_task_group() as tg:
@@ -171,13 +174,16 @@ class BaseEvtHandler:
 			self._tg = None
 			await self._done.set()
 			self._done = None
-			await self._q.put(None)
-			self._q = None
+			if self._q is not None:
+				await self._q.put(None)
+				self._q = None
 
 			# Any unprocessed events get relegated to the parent
 			while True:
 				try:
-					with anyio.fail_after(0.001):
+					async with anyio.fail_after(0.001):
+						if self._q is None:
+							break
 						evt = self._q.get()
 				except TimeoutError:
 					break
@@ -185,14 +191,14 @@ class BaseEvtHandler:
 					await self._handle_prev(evt)
 
 
-	def done(self):
+	async def done(self):
 		"""Signal that this event handler has finished.
 
 		This call cancels the main loop, if any, as well as the loop of any
 		sub-event handlers which might be running.
 		"""
 		if self._tg is not None:
-			self._tg.cancel_scope.cancel()
+			await self._tg.cancel_scope.cancel()
 
 
 	async def __aexit__(self, *tb):
@@ -658,8 +664,7 @@ class BridgeState(_ThingEvtHandler):
 		try:
 			await ch.wait_up()
 		except BaseException:
-			async with anyio.move_on_after(2) as s:
-				s.shield = True
+			async with anyio.move_on_after(2, shield=True) as s:
 				await ch.hang_up()
 				await ch.wait_down()
 			raise
@@ -817,8 +822,7 @@ class BridgeState(_ThingEvtHandler):
 		and you still need to clean up bridges that are no longer needed.
 
 		"""
-		async with anyio.move_on_after(2) as s:
-			s.shield = True
+		async with anyio.move_on_after(2, shield=True) as s:
 			log.info("TEARDOWN %s %s",self,self.bridge.channels)
 			for ch in list(self.bridge.channels)+list(self.calls):
 				try:
@@ -855,8 +859,7 @@ class ToplevelChannelState(ChannelState):
 		except StateError:
 			pass
 		finally:
-			async with anyio.fail_after(2) as s:
-				s.shield = True
+			async with anyio.fail_after(2, shield=True) as s:
 				await self.channel.exit_hangup()
 
 	async def hang_up(self, reason="normal"):

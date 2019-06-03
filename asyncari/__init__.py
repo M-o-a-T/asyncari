@@ -23,7 +23,7 @@ async def connect(base_url, apps, username, password):
     Usage::
         async with asyncari.connect(base_url, "hello", username, password) as ari:
             async for msg in ari:
-                ari.nursery.start_soon(handle_msg, msg)
+                await ari.tg.spawn(handle_msg, msg)
 
     """
     host = urllib.parse.urlparse(base_url).netloc.split(':')[0]
@@ -37,5 +37,8 @@ async def connect(base_url, apps, username, password):
                     yield client
                 finally:
                     await tg.cancel_scope.cancel()
+                pass # end client
+            pass # end taskgroup
     finally:
         await http_client.close()
+        pass # end
