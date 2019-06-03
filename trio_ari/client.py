@@ -10,8 +10,7 @@ import os
 import json
 import urllib
 import trio
-import trio_swagger11
-import trio_swagger11.client
+from asyncswagger11.client import SwaggerClient
 import time
 import inspect
 import sys
@@ -41,8 +40,7 @@ class Client:
         self.nursery = nursery
         self._apps = apps
         url = urllib.parse.urljoin(base_url, "ari/api-docs/resources.json")
-        self.swagger = trio_swagger11.client.SwaggerClient(
-            http_client=http_client, url=url)
+        self.swagger = SwaggerClient(http_client=http_client, url=url)
         self.class_map = CLASS_MAP.copy()
         tm = time.time()
         self._id_name = "ARI.%x.%x%03x" % (os.getpid(),int(tm),int(tm*0x1000)&0xFFF)

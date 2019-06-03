@@ -20,7 +20,7 @@ setup(
     ],
     install_requires=[
         "trio>=0.11",
-        "trio_swagger11",
+        "asyncswagger11",
         "asks",
         "attrs>=18",
         "asyncwebsockets",
