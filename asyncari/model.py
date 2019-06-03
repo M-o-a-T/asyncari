@@ -24,7 +24,7 @@ import inspect
 from functools import partial
 from weakref import WeakValueDictionary
 from contextlib import suppress
-import trio
+import anyio
 from asks.errors import BadStatus
 
 log = logging.getLogger(__name__)
@@ -150,6 +150,8 @@ class DefaultObjectIdGenerator(ObjectIdGenerator):
         return obj_json[self.id_field]
 
 
+QLEN=99
+
 class BaseObject(object):
     """Base class for ARI domain objects.
 
@@ -165,7 +167,8 @@ class BaseObject(object):
     cache = None
     active = None
     id = None
-    _queue_send, _queue_recv = None, None
+    _q = None
+    _qlen = 0
     json = None
     api = None
     _waiting = False  # protect against re-entering the event iterator
@@ -200,7 +203,7 @@ class BaseObject(object):
         self.api = getattr(self.client.swagger, self.api)
         self.id = id
         self.event_listeners = {}
-        self._changed = trio.Event()
+        self._changed = anyio.create_event()
         self._init()
 
     def _init(self):
@@ -213,9 +216,9 @@ class BaseObject(object):
                 return r
             await self._changed.wait()
 
-    def _has_changed(self):
-        c,self._changed = self._changed,trio.Event()
-        c.set()
+    async def _has_changed(self):
+        c,self._changed = self._changed,anyio.create_event()
+        await c.set()
 
     def remember(self):
         """
@@ -313,28 +316,30 @@ class BaseObject(object):
             if inspect.iscoroutine(r):
                 await r
 
-        if self._queue_send is not None:
-            self._queue_send.send_nowait(msg)
-            # This is intentional: raise an error if the queue is full
-            # instead of waiting forever and possibly deadlocking
+        if self._q is not None:
+            if self._q_len >= QLEN-1:
+                raise RuntimeError("queue full")
+            self._q_len += 1
+            await self._q.put(msg)
 
         # Finally trigger waiting checks
-        self._has_changed()
+        await self._has_changed()
 
     def __aiter__(self):
-        if self._queue_send is None:
-            self._queue_send,self._queue_recv = trio.open_memory_channel(99)
+        if self._q is None:
+            self._q = anyio.create_queue(QLEN)
         return self
 
     async def __anext__(self):
-        if self._queue_recv is None:
+        if self._q is None:
             raise StopAsyncIteration
         if self._waiting:
             self._waiting = False
             raise RuntimeError("Another task is waiting")
         try:
             self._waiting = True
-            res = await self._queue_recv.receive()
+            res = await self._q.get()
+            self._q_len -= 1
         finally:
             if not self._waiting:
                 raise RuntimeError("Another task has waited")
@@ -343,10 +348,9 @@ class BaseObject(object):
 
     async def aclose(self):
         """No longer queue events"""
-        if self._queue_send is not None:
-            self._queue_send.close()
-            self._queue_send = None
-            self._queue_recv = None
+        if self._q is not None:
+            await self._q.put(None)
+            self._q = None
 
 
 class Channel(BaseObject):
@@ -375,7 +379,6 @@ class Channel(BaseObject):
         super()._init()
         self.playbacks = set()
         self.vars = {}
-        #self._dtmf_send, self._dtmf_recv = trio.open_memory_channel(20)
 
     async def set_reason(self, reason):
         """Set the reason for hanging up."""
@@ -389,7 +392,7 @@ class Channel(BaseObject):
 
         self._reason = reason
         if self._reason_seen is not None:
-            self._reason_seen.set()
+            await self._reason_seen.set()
 
     async def hang_up(self, reason=None):
         """Call this (and only this) to hang up a channel.
@@ -402,7 +405,7 @@ class Channel(BaseObject):
         if reason is not None:
             await self.set_reason(reason)
         if self._reason is None:
-            self._reason_seen = trio.Event()
+            self._reason_seen = anyio.create_event()
         await self.client.nursery.start(self._hangup_task)
 
     async def exit_hangup(self, reason="normal"):
@@ -420,12 +423,13 @@ class Channel(BaseObject):
                 raise
         finally:
             self.state = "Gone"
-            self._changed.set()
+            await self._changed.set()
 
-    async def _hangup_task(self, task_status=trio.TASK_STATUS_IGNORED):
-        task_status.started()
+    async def _hangup_task(self, evt: anyio.abc.Event = None):
+        if evt is not None:
+            await evt.set()
         if self._reason is None:
-            with trio.move_on_after(self.hangup_delay):
+            async with anyio.move_on_after(self.hangup_delay):
                 await self._reason_seen.wait()
 
         try:
@@ -612,8 +616,8 @@ class Playback(BaseObject):
     bridge = None
 
     def _init(self):
-        self._is_playing = trio.Event()
-        self._is_done = trio.Event()
+        self._is_playing = anyio.create_event()
+        self._is_done = anyio.create_event()
         target = self.json.get('target_uri', '')
         if target.startswith('channel:'):
             self.channel = Channel(self.client, id=target[8:])
@@ -626,10 +630,10 @@ class Playback(BaseObject):
         if self.bridge is not None:
             await self.bridge.do_event(msg)
         if msg.type == "PlaybackStarted":
-            self._is_playing.set()
+            await self._is_playing.set()
         elif msg.type == "PlaybackFinished":
-            self._is_playing.set()
-            self._is_done.set()
+            await self._is_playing.set()
+            await self._is_done.set()
         else:
             log.warn("Event not recognized: %s for %s", msg, self)
         await super().do_event(msg)

@@ -10,8 +10,8 @@ are used to control the playback.
 # Copyright (c) 2013, Digium, Inc.
 #
 
-import trio
-import trio_ari
+import anyio
+import asyncari
 import sys
 import logging
 
@@ -66,7 +66,7 @@ async def on_start(objs, event):
     channel.on_event('ChannelDtmfReceived', on_dtmf)
 
 async def main():
-    async with trio_ari.connect(ast_url, ast_app, ast_username,ast_password) as client_:
+    async with asyncari.connect(ast_url, ast_app, ast_username,ast_password) as client_:
         global client
         client = client_
         client.on_channel_event('StasisStart', on_start)
@@ -76,5 +76,5 @@ async def main():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    trio.run(main)
+    anyio.run(main)
 

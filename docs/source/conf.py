@@ -52,6 +52,7 @@ extensions = [
 intersphinx_mapping = {
     "python": ('https://docs.python.org/3', None),
     "trio": ('https://trio.readthedocs.io/en/stable', None),
+    "anyio": ('https://anyio.readthedocs.io/en/stable', None),
 }
 
 autodoc_member_order = "bysource"
@@ -69,17 +70,17 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = 'trio-ari'
-copyright = 'The trio-ari authors'
-author = 'The trio-ari authors'
+project = 'asyncari'
+copyright = 'The asyncari authors'
+author = 'The asyncari authors'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
 # built documents.
 #
 # The short X.Y version.
-import trio_ari
-version = trio_ari.__version__
+import asyncari
+version = asyncari.__version__
 # The full version, including alpha/beta/rc tags.
 release = version
 
@@ -142,7 +143,7 @@ html_static_path = ['_static']
 # -- Options for HTMLHelp output ------------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = 'trio-ari-doc'
+htmlhelp_basename = 'asyncari-doc'
 
 
 # -- Options for LaTeX output ---------------------------------------------
@@ -169,7 +170,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'trio-ari.tex', 'Trio Documentation',
+    (master_doc, 'asyncari.tex', 'Trio Documentation',
      author, 'manual'),
 ]
 
@@ -179,7 +180,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'trio-ari', 'trio-ari Documentation',
+    (master_doc, 'asyncari', 'asyncari Documentation',
      [author], 1)
 ]
 
@@ -190,7 +191,7 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (master_doc, 'trio-ari', 'trio-ari Documentation',
-     author, 'trio-ari', 'A Trio-ified adapter for the Asterisk ARI interface',
+    (master_doc, 'asyncari', 'asyncari Documentation',
+     author, 'asyncari', 'An AnyIO-ified adapter for the Asterisk ARI interface',
      'Miscellaneous'),
 ]

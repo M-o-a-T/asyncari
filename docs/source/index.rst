@@ -5,7 +5,7 @@
 
 
 =============================================================
-trio-ari: A Trio-ified adapter for the Asterisk ARI interface
+asyncari: A Trio-ified adapter for the Asterisk ARI interface
 =============================================================
 
 .. toctree::

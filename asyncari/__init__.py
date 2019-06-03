@@ -2,13 +2,13 @@
 # Copyright (c) 2018, Matthias Urlichs
 #
 
-"""trio-ari client
+"""asyncari client
 """
 
-from trio_ari.client import Client
+from asyncari.client import Client
 from asyncswagger11.http_client import AsynchronousHttpClient, ApiKeyAuthenticator
 import urllib.parse
-import trio
+import anyio
 from async_generator import asynccontextmanager
 
 @asynccontextmanager
@@ -21,7 +21,7 @@ async def connect(base_url, apps, username, password):
     :param password: ARI password
     
     Usage::
-        async with trio_ari.connect(base_url, "hello", username, password) as ari:
+        async with asyncari.connect(base_url, "hello", username, password) as ari:
             async for msg in ari:
                 ari.nursery.start_soon(handle_msg, msg)
 
@@ -30,12 +30,12 @@ async def connect(base_url, apps, username, password):
     http_client = AsynchronousHttpClient(
         auth=ApiKeyAuthenticator(host, username+':'+password))
     try:
-        async with trio.open_nursery() as nursery:
-            client = Client(nursery, base_url, apps, http_client)
+        async with anyio.create_task_group() as tg:
+            client = Client(tg, base_url, apps, http_client)
             async with client:
                 try:
                     yield client
                 finally:
-                    nursery.cancel_scope.cancel()
+                    await tg.cancel_scope.cancel()
     finally:
         await http_client.close()

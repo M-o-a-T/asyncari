@@ -7,8 +7,8 @@
 #
 # Copyright (c) 2013, Digium, Inc.
 #
-import trio_ari
-import trio
+import asyncari
+import anyio
 import logging
 
 from asks.errors import AsksException  # HTTPNotFound, HTTPBadRequest
@@ -118,7 +118,7 @@ async def _on_start(objs, event):
     outgoing.on_event('StasisStart', outgoing_on_start, outgoing)
 
 async def main():
-    async with trio_ari.connect(ast_url, ast_app, ast_username,ast_password) as _client:
+    async with asyncari.connect(ast_url, ast_app, ast_username,ast_password) as _client:
         global client
         client = _client
         await setup()
@@ -129,5 +129,5 @@ async def main():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    trio.run(main)
+    anyio.run(main)
 

@@ -47,23 +47,23 @@ To run tests
 * Install requirements: ``pip install -r ci/test-requirements.txt``
   (possibly in a virtualenv)
 
-* Actually run the tests: ``pytest trio_ari``
+* Actually run the tests: ``pytest asyncari``
 
 
 To run yapf
 -----------
 
 * Show what changes yapf wants to make: ``yapf -rpd setup.py
-  trio_ari``
+  asyncari``
 
 * Apply all changes directly to the source tree: ``yapf -rpi setup.py
-  trio_ari``
+  asyncari``
 
 
 To make a release
 -----------------
 
-* Update the version in ``trio_ari/_version.py``
+* Update the version in ``asyncari/_version.py``
 
 * Run ``towncrier`` to collect your release notes.
 

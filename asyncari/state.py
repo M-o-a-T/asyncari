@@ -7,7 +7,7 @@ hangs up, a :class:`ChannelExit` exception is raised.
 """
 
 import math
-import trio
+import anyio
 import inspect
 import functools
 
@@ -57,7 +57,7 @@ class _ErrorEvent:
 def as_task(proc):
 	@functools.wraps(proc)
 	async def worker(self, *a, **kw):
-		self.nursery.start_soon(functools.partial(proc, self, *a, **kw), name=proc.__name__)
+		await self.tg.spawn(functools.partial(proc, self, *a, **kw), name=proc.__name__)
 	assert inspect.iscoroutinefunction(proc)
 	return worker
 
@@ -91,11 +91,11 @@ class BaseEvtHandler:
 	:class:`BridgeState`.
 	"""
 	# Internally, start_task starts a separate task that enters this state machine's context.
-	# Entering the context starts _run_with_nursery, which creates the
-	# loop's nursery and then executes .run, which loops over incoming
+	# Entering the context starts _run_with_taskgroup, which creates the
+	# loop's task group and then executes .run, which loops over incoming
 	# events and processes them.
 	# 
-	# Calling .done cancels the nursery's context, thus terminates everything that's internal.
+	# Calling .done cancels the task group's context, thus terminates everything that's internal.
 	# Awaiting the handler itself waits for the internal loop to end.
 
 	# Main client, for Asterisk ARI calls
@@ -104,18 +104,17 @@ class BaseEvtHandler:
 	# The event handler leeching off us
 	_sub = None
 
-	# The nursery used to start our main loop
-	_base_nursery = None
+	# The task group used to start our main loop
+	_base_tg = None
 
-	# The nursery within our main loop
-	_nursery = None
+	# The task group within our main loop
+	_tg = None
 
 	# Event signalling that our main loop is done
 	_done = None
 
 	# Our event channel
-	_send = None
-	_recv = None
+	_q = None
 
 	# If this is a model-based toplevel handler, this is the name of the attribute it's based on
 	_src = None
@@ -129,55 +128,58 @@ class BaseEvtHandler:
 	# Number of tasks working the queue
 	_n_proc = 0
 
-	def __init__(self, client, nursery=None):
+	def __init__(self, client, tg=None):
 		self.client = client
-		self._base_nursery = nursery or client.nursery
+		self._base_tg = tg or client.tg
 
 	async def start_task(self):
 		"""This is a shortcut for running this object's async context
 		manager / event loop in a separate task."""
-		await self._base_nursery.start(self._run_ctx, name="start_task "+self.ref_id)
+		await self._base_tg.spawn(self._run_ctx, name="start_task "+self.ref_id)
 
-	async def _run_ctx(self, task_status=trio.TASK_STATUS_IGNORED):
+	async def _run_ctx(self, evt: anyio.abc.Event = None):
 		async with self:
-			task_status.started()
+			if evt is not None:
+				await evt.set()
 			await self._done.wait()
 
 	async def __aenter__(self):
 		"""
 		Context manager to run this state machine's "run" method / main loop.
 		"""
-		await self._base_nursery.start(self._run_with_nursery, name="run "+repr(self))
+		await self._base_tg.spawn(self._run_with_tg, name="run "+repr(self))
 		return self
 
 	@property
-	def nursery(self):
-		"""the nursery to use"""
-		if self._nursery is None:
-			return self._base_nursery
+	def tg(self):
+		"""the tg to use"""
+		if self._tg is None:
+			return self._base_tg
 		else:
-			return self._nursery
+			return self._tg
 
-	async def _run_with_nursery(self, *, task_status=trio.TASK_STATUS_IGNORED):
+	async def _run_with_tg(self, *, evt: anyio.abc.Event = None):
 		try:
 			assert self._done is None, self._done
-			self._done = trio.Event()
-			self._send, self._recv = trio.open_memory_channel(20)
+			self._done = anyio.create_event()
+			self._q = anyio.create_queue(20)
 
-			async with trio.open_nursery() as nursery:
-				self._nursery = nursery
-				await self.run(task_status=task_status)
+			async with anyio.create_task_group() as tg:
+				self._tg = tg
+				await self.run(evt=evt)
 		finally:
-			self._nursery = None
-			self._done.set()
+			self._tg = None
+			await self._done.set()
 			self._done = None
-			await self._send.aclose()
+			await self._q.put(None)
+			self._q = None
 
 			# Any unprocessed events get relegated to the parent
 			while True:
 				try:
-					evt = self._recv.receive_nowait()
-				except trio.EndOfChannel:
+					with anyio.fail_after(0.001):
+						evt = self._q.get()
+				except TimeoutError:
 					break
 				else:
 					await self._handle_prev(evt)
@@ -189,8 +191,8 @@ class BaseEvtHandler:
 		This call cancels the main loop, if any, as well as the loop of any
 		sub-event handlers which might be running.
 		"""
-		if self._nursery is not None:
-			self._nursery.cancel_scope.cancel()
+		if self._tg is not None:
+			self._tg.cancel_scope.cancel()
 
 
 	async def __aexit__(self, *tb):
@@ -228,8 +230,8 @@ class BaseEvtHandler:
 
 	async def _handle_here(self, evt):
 		try:
-			await self._send.send(evt)
-		except trio.ClosedResourceError:
+			await self._q.put(evt)
+		except anyio.ClosedResourceError:
 			log.info("Unhandled event %s on %s (closed)", evt.type, self)
 
 
@@ -252,14 +254,14 @@ class BaseEvtHandler:
 		log.info("Unhandled event %s on %s", evt.type, self)
 		return False
 
-	async def run(self, task_status=trio.TASK_STATUS_IGNORED):
+	async def run(self, evt: anyio.abc.Event = None):
 		"""
 		Process my events.
 
 		Override+call this e.g. for overall timeouts::
 
 			async def run(self):
-				with trio.fail_after(30):
+				async with anyio.fail_after(30):
 					await super().run()
 
 		You must call :meth:`_handle_prev` on events you don't recognize.
@@ -270,19 +272,21 @@ class BaseEvtHandler:
 		Do not replace this method. Do not call it directly.
 		"""
 		log.debug("StartRun %s", self)
-		task_status.started()
+		if evt is not None:
+			await evt.set()
 		await self.on_start()
 
-		self._proc_lock = trio.Lock()
+		self._proc_lock = anyio.create_lock()
 		while True:
 			if self._n_proc == 0:
-				await self.nursery.start(self._process, name="Worker "+self.ref_id)
-			self._proc_check = trio.Event()
-			await trio.sleep(0.1)
+				await self.tg.spawn(self._process, name="Worker "+self.ref_id)
+			self._proc_check = anyio.create_event()
+			await anyio.sleep(0.1)
 			await self._proc_check.wait()
 
-	async def _process(self, task_status=trio.TASK_STATUS_IGNORED):
-		task_status.started()
+	async def _process(self, evt: anyio.abc.Event = None):
+		if evt is not None:
+			await evt.set()
 		try:
 			while True:
 				self._n_proc += 1
@@ -294,7 +298,7 @@ class BaseEvtHandler:
 				finally:
 					self._n_proc -= 1
 				if self._n_proc == 0:
-					self._proc_check.set()
+					await self._proc_check.set()
 
 				# Any unhandled event is relegated to the parent
 				try:
@@ -318,7 +322,7 @@ class BaseEvtHandler:
 				type = "MyTimeout"
 
 			async def get_event():
-				with trio.move_on_after(30):
+				async with anyio.move_on_after(30):
 					return await super().get_event()
 				return TimeoutEvent()
 
@@ -327,9 +331,10 @@ class BaseEvtHandler:
 
 		Raises StopAsyncIteration when no more events will arrive.
 		"""
-		try:
-			evt = await self._recv.receive()
-		except trio.EndOfChannel:
+		if self._q is None:
+			raise StopAsyncIteration
+		evt = await self._q.get()
+		if evt is None:
 			raise StopAsyncIteration
 		log.debug("Event:%s %s", self, evt)
 		return evt
@@ -401,20 +406,20 @@ class _EvtHandler(BaseEvtHandler):
 
 	def __init__(self, prev):
 		self._prev = prev
-		super().__init__(prev.client, nursery=prev.nursery)
+		super().__init__(prev.client, tg=prev.tg)
 
 	async def _handle_prev(self, evt):
 		await self._prev._handle_here(evt)
 		return True
 
-	async def _run_with_nursery(self, **kw):
+	async def _run_with_tg(self, **kw):
 		# the event handler stack doesn't allow branches
 		if self._prev._sub is not None:
 			raise RuntimeError("Our parent already has a sub-handler")
 		self._prev._sub = self
 
 		try:
-			await super()._run_with_nursery(**kw)
+			await super()._run_with_tg(**kw)
 
 		finally:
 			if self._prev._sub is not self:
@@ -456,17 +461,17 @@ class AsyncEvtHandler(_EvtHandler):
 	Alternately, use :class:`SyncEvtHandler` in a separate task.
 
 	"""
-	async def _run_with_nursery(self, *, task_status=trio.TASK_STATUS_IGNORED):
+	async def _run_with_tg(self, *, evt: anyio.abc.Event = None):
 		try:
-			await super()._run_with_nursery(task_status=task_status)
-		except Exception as exc:
-			await self._handle_prev(_ErrorEvent(exc))
-		except trio.Cancelled:
+			await super()._run_with_tg(evt=evt)
+		except anyio.get_cancelled_exc_class():
 			if self._done.is_set():
 				await self._handle_prev(_ResultEvent(self._result))
 			else:
 				await self._handle_prev(_ErrorEvent(CancelledError()))
 			raise
+		except Exception as exc:
+			await self._handle_prev(_ErrorEvent(exc))
 		except BaseException:
 			await self._handle_prev(_ErrorEvent(CancelledError()))
 			raise
@@ -505,7 +510,7 @@ class SyncEvtHandler(_EvtHandler):
 
 	async def _await(self):
 		"""This does not use context management, because we want to get errors."""
-		await self._run_with_nursery()
+		await self._run_with_tg()
 
 		if isinstance(self._result, Exception):
 			raise self._result
@@ -552,12 +557,12 @@ class DTMFHandler:
 			return p
 
 class _ThingEvtHandler(BaseEvtHandler):
-	async def run(self, task_status=trio.TASK_STATUS_IGNORED):
-		if self._nursery is None:
-			raise RuntimeError("I do not have a nursery. Use 'async with' or 'start_task'.")
+	async def run(self, evt: anyio.abc.Event = None):
+		if self._tg is None:
+			raise RuntimeError("I do not have a task group. Use 'async with' or 'start_task'.")
 		handler = self.ref.on_event("*", self.handle)
 		try:
-			await super().run(task_status=task_status)
+			await super().run(evt=evt)
 		finally:
 			handler.close()
 
@@ -653,7 +658,7 @@ class BridgeState(_ThingEvtHandler):
 		try:
 			await ch.wait_up()
 		except BaseException:
-			with trio.move_on_after(2) as s:
+			async with anyio.move_on_after(2) as s:
 				s.shield = True
 				await ch.hang_up()
 				await ch.wait_down()
@@ -812,7 +817,7 @@ class BridgeState(_ThingEvtHandler):
 		and you still need to clean up bridges that are no longer needed.
 
 		"""
-		with trio.move_on_after(2) as s:
+		async with anyio.move_on_after(2) as s:
 			s.shield = True
 			log.info("TEARDOWN %s %s",self,self.bridge.channels)
 			for ch in list(self.bridge.channels)+list(self.calls):
@@ -841,16 +846,16 @@ class HangupBridgeState(BridgeState):
 
 class ToplevelChannelState(ChannelState):
 	"""A channel state machine that unconditionally hangs up its channel on exception"""
-	async def run(self, task_status=trio.TASK_STATUS_IGNORED):
+	async def run(self, evt: anyio.abc.Event = None):
 		"""Task for this state. Hangs up the channel on exit."""
 		try:
-			await super().run(task_status=task_status)
+			await super().run(evt=evt)
 		except ChannelExit:
 			pass
 		except StateError:
 			pass
 		finally:
-			with trio.fail_after(2) as s:
+			async with anyio.fail_after(2) as s:
 				s.shield = True
 				await self.channel.exit_hangup()
 
@@ -860,12 +865,12 @@ class ToplevelChannelState(ChannelState):
 
 class OutgoingChannelState(ToplevelChannelState):
 	"""A channel state machine that waits for an initial StasisStart event before proceeding"""
-	async def run(self, task_status=trio.TASK_STATUS_IGNORED):
+	async def run(self, evt: anyio.abc.Event = None):
 		async for evt in self.channel:
 			if evt.type != "StatisStart":
 				raise StateError(evt)
 			break
-		await super().run(task_status=task_status)
+		await super().run(evt=evt)
 
 class CallManager:
 	state = None
@@ -882,14 +887,14 @@ class CallManager:
 		if timeout is None:
 			timeout = math.inf
 
-		with trio.fail_after(timeout):
+		async with anyio.fail_after(timeout):
 			self.channel = ch = self.bridge.dial(**self.kw)
 		if self.State is not None:
 			try:
 				self.state = state = self.State(ch)
 				await state.start_task()
 			except BaseException:
-				with trio.open_cancel_scope(shield=True):
+				async with anyio.open_cancel_scope(shield=True):
 					await ch.hangup()
 				raise
 

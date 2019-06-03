@@ -9,11 +9,11 @@ endpoint when a Stasis call arrives, and connect the call.
 # Copyright (c) 2013, Digium, Inc.
 # Copyright (c) 2018, Matthias Urlichs
 #
-import trio_ari
-import trio
+import asyncari
+import anyio
 import logging
-from trio_ari.state import ToplevelChannelState, HangupBridgeState, DTMFHandler, as_task
-from trio_ari.model import ChannelExit
+from asyncari.state import ToplevelChannelState, HangupBridgeState, DTMFHandler, as_task
+from asyncari.model import ChannelExit
 
 from pprint import pprint
 
@@ -66,7 +66,7 @@ async def _on_start(objs, event, client):
     await cs.run()
 
 async def main():
-    async with trio_ari.connect(ast_url, ast_app, ast_username,ast_password) as client:
+    async with asyncari.connect(ast_url, ast_app, ast_username,ast_password) as client:
         client.on_channel_event('StasisStart', on_start, client)
         async for m in client:
             #print("** EVENT **", m)
@@ -75,7 +75,7 @@ async def main():
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     try:
-        trio.run(main)
+        anyio.run(main)
     except KeyboardInterrupt:
         pass
 

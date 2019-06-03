@@ -11,8 +11,8 @@ to the channel. Press # to hang up, and * for a special message.
 # Copyright (c) 2013, Digium, Inc.
 #
 
-import trio_ari
-import trio
+import asyncari
+import anyio
 import logging
 
 import os
@@ -39,7 +39,7 @@ async def on_dtmf(event, channel):
     """
     digit = event['digit']
     print(digit)
-    await trio.sleep(0.01)
+    await anyio.sleep(0.01)
     if digit == '#':
         channel.on_event("PlaybackFinished", do_hangup, channel)
         await channel.play(media='sound:vm-goodbye')
@@ -59,7 +59,7 @@ async def on_start(objs, event):
     :param event: Event.
     """
     channel = objs['channel']
-    await trio.sleep(0.01)
+    await anyio.sleep(0.01)
     #r = await channel.getChannelVar(variable="CALLERID(num)")
     #t = await channel.getChannelVar(variable="CALLERID(ton)")
     #print("** START **", channel, t,r,event)
@@ -76,7 +76,7 @@ async def on_end(channel, event):
     #print("** END **", channel, event)
 
 async def main():
-    async with trio_ari.connect(ast_url, ast_app, ast_username,ast_password) as client:
+    async with asyncari.connect(ast_url, ast_app, ast_username,ast_password) as client:
         client.on_channel_event('StasisStart', on_start)
         client.on_channel_event('StasisEnd', on_end)
         # Run the WebSocket
@@ -85,4 +85,4 @@ async def main():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    trio.run(main)
+    anyio.run(main)

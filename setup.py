@@ -3,13 +3,13 @@ from setuptools import setup, find_packages
 LONG_DESC = open("README.rst", encoding="utf-8").read()
 
 setup(
-    name="trio-ari",
+    name="asyncari",
     use_scm_version={
         "version_scheme": "guess-next-dev",
         "local_scheme": "dirty-tag"
     },
-    description="A Trio-ified adapter for the Asterisk ARI interface",
-    url="https://github.com/M-o-a-T/trio-ari",
+    description="A AnyIO-ified adapter for the Asterisk ARI interface",
+    url="https://github.com/M-o-a-T/asyncari",
     long_description=open("README.rst").read(),
     author="Matthias Urlichs",
     author_email="matthias@urlichs.de",
@@ -19,7 +19,8 @@ setup(
         "setuptools_scm",
     ],
     install_requires=[
-        "trio>=0.11",
+        "trio >= 0.11",
+        "anyio >= 1.0.0",
         "asyncswagger11",
         "asks",
         "attrs>=18",
@@ -37,6 +38,7 @@ setup(
         "Programming Language :: Python :: 3 :: Only",
         "Programming Language :: Python :: Implementation :: CPython",
         "Programming Language :: Python :: Implementation :: PyPy",
+        "Framework :: AsyncIO",
         "Framework :: Trio",
         "Topic :: Communications :: Telephony",
         "Development Status :: 3 - Alpha",

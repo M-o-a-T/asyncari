@@ -1,6 +1,6 @@
 [run]
 branch=True
-source=trio_ari
+source=asyncari
 
 [report]
 precision = 1

@@ -1,10 +1,9 @@
-trio-ari
+asyncari
 ========
 
-Welcome to `trio-ari <https://github.com/M-o-a-T/trio-ari>`__!
+Welcome to `asyncari <https://github.com/M-o-a-T/asyncari>`__!
 
-Trio-ARI is a Trio-ified adapter for the Asterisk ARI interface.
-Currently, it adapts `aioari`_ to be used with Trio programs.
+AsyncARI is an AnyIO-ified adapter for the Asterisk ARI interface.
 
 License: Your choice of MIT or Apache License 2.0
 

@@ -12,9 +12,9 @@ to the channel. Press # to hang up, and * for a special message.
 # Copyright (c) 2018, Matthias Urlichs
 #
 
-import trio_ari
-from trio_ari.state import ToplevelChannelState, DTMFHandler
-import trio
+import asyncari
+from asyncari.state import ToplevelChannelState, DTMFHandler
+import anyio
 import logging
 import asks
 
@@ -64,7 +64,7 @@ async def on_start(objs, event, client):
     await client.nursery.start(State(channel).run)
 
 async def main():
-    async with trio_ari.connect(ast_url, ast_app, ast_username,ast_password) as client:
+    async with asyncari.connect(ast_url, ast_app, ast_username,ast_password) as client:
         client.on_channel_event('StasisStart', on_start, client)
         # Run the WebSocket
         async for m in client:
@@ -73,6 +73,6 @@ async def main():
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     try:
-        trio.run(main)
+        anyio.run(main)
     except KeyboardInterrupt:
         pass

@@ -12,10 +12,10 @@ This script implements a reasonable dial-in.
 # Copyright (c) 2018, Matthias Urlichs
 #
 
-import trio_ari
-from trio_ari.state import ToplevelChannelState, as_task, HangupBridgeState
-from trio_ari.util import SyncReadNumber, SyncPlay, NumberError
-import trio
+import asyncari
+from asyncari.state import ToplevelChannelState, as_task, HangupBridgeState
+from asyncari.util import SyncReadNumber, SyncPlay, NumberError
+import anyio
 from functools import partial
 import jwt
 from datetime import datetime,timedelta
@@ -93,7 +93,7 @@ class ZoomState(ToplevelChannelState):
 	# answer immediately (or too fast).
 	try:
 	    await channel.ring()
-	    await trio.sleep(0.5)
+	    await anyio.sleep(0.5)
 	    await channel.answer()
 	except BadStatus:
             # Just ignore this call.
@@ -183,23 +183,22 @@ async def on_start(objs, event, client):
     if event['args'][0] == 'dialed':
         return  # we originated this call; TODO use a nicer method
 
-    # Actually trio-ari also gets StasisStart for outgoing channels, but those are already caught for us.
+    # Actually asyncari also gets StasisStart for outgoing channels, but those are already caught for us.
     await ZoomState(channel).start_task()
 
 async def main():
-    async with trio_ari.connect(ast_url, ast_app, ast_username,ast_password) as client:
-        async with trio.open_nursery() as n:
-            # Our main entry point.
-            client.on_channel_event('StasisStart', client)
+    async with asyncari.connect(ast_url, ast_app, ast_username,ast_password) as client:
+        # Our main entry point.
+        client.on_channel_event('StasisStart', client)
 
-            # Run the WebSocket. Just for laughs ^W debugging we also print all events here,
-            # though a simple "trio.sleep(math.inf)" would be sufficient
-            async for m in client:
-                print("** EVENT **", m)
+        # Run the WebSocket. Just for laughs ^W debugging we also print all events here,
+        # though a simple "anyio.sleep(math.inf)" would be sufficient
+        async for m in client:
+            print("** EVENT **", m)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     try:
-        trio.run(main)
+        anyio.run(main)
     except KeyboardInterrupt:
         pass

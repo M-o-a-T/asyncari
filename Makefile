@@ -9,7 +9,7 @@ all:
 # need to use python3 sphinx-build
 PATH := /usr/share/sphinx/scripts/python3:${PATH}
 
-PACKAGE = trio_ari
+PACKAGE = asyncari
 PYTHON ?= python3
 export PYTHONPATH=$(shell pwd)
 

@@ -6,8 +6,8 @@
 #
 # Copyright (c) 2018, Matthias Urlichs
 #
-import trio_ari
-import trio
+import asyncari
+import anyio
 from asks.errors import BadStatus
 
 import logging
@@ -38,10 +38,10 @@ async def clean_bridges(client):
             print(b.id,"… deleted")
 
 async def main():
-    async with trio_ari.connect(ast_url, ast_app, ast_username,ast_password) as client:
+    async with asyncari.connect(ast_url, ast_app, ast_username,ast_password) as client:
         await clean_bridges(client)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    trio.run(main)
+    anyio.run(main)
 

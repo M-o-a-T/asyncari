@@ -56,7 +56,7 @@ pip install -U pip setuptools wheel
 
 if [ "$CHECK_FORMATTING" = "1" ]; then
     pip install yapf==${YAPF_VERSION}
-    if ! yapf -rpd setup.py trio_ari; then
+    if ! yapf -rpd setup.py asyncari; then
         cat <<EOF
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -64,7 +64,7 @@ if [ "$CHECK_FORMATTING" = "1" ]; then
 Formatting problems were found (listed above). To fix them, run
 
    pip install yapf==${YAPF_VERSION}
-   yapf -rpi setup.py trio_ari
+   yapf -rpi setup.py asyncari
 
 in your local checkout.
 
@@ -92,7 +92,7 @@ else
     mkdir empty
     cd empty
 
-    pytest -W error -ra -v --pyargs ../tests --cov=trio_ari --cov-config=../.coveragerc --verbose
+    pytest -W error -ra -v --pyargs ../tests --cov=asyncari --cov-config=../.coveragerc --verbose
 
     bash <(curl -s https://codecov.io/bash)
 fi

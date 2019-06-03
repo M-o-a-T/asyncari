@@ -1,6 +1,6 @@
 Release history
 ===============
 
-.. currentmodule:: trio_ari
+.. currentmodule:: asyncari
 
 .. towncrier release notes start

@@ -2,14 +2,14 @@
 # Copyright (c) 2018 Matthias Urlichs
 #
 
-"""Trio-ified ARI client library.
+"""Asyncified ARI client library.
 """
 
 import re
 import os
 import json
 import urllib
-import trio
+import anyio
 from asyncswagger11.client import SwaggerClient
 import time
 import inspect
@@ -30,7 +30,7 @@ __all__ = ["Client"]
 class Client:
     """Async ARI Client object.
 
-    :param nursery: the Trio nursery to run our task(s) in.
+    :param tg: the AnyIO taskgroup to run our task(s) in.
     :param apps: the Stasis app(s) to register for.
     :param base_url: Base URL for accessing Asterisk.
     :param http_client: HTTP client interface.
@@ -64,7 +64,7 @@ class Client:
         return self
 
     async def __aexit__(self, *tb):
-        with trio.fail_after(1) as scope:
+        async with anyio.fail_after(1) as scope:
             scope.shield=True
             await self.close()
 
@@ -95,7 +95,7 @@ class Client:
     def __aiter__(self):
         return ClientReader(self)
 
-    async def _run(self, task_status=trio.TASK_STATUS_IGNORED):
+    async def _run(self, evt: anyio.abc.Event = None):
         """Connect to the WebSocket and begin processing messages.
 
         This method will block until all messages have been received from the
@@ -118,34 +118,41 @@ class Client:
 
         # For tests
         try:
-            task_status.started()
+            if evt is not None:
+                await evt.set()
             await self.__run(ws)
         finally:
             await ws.close()
             self.websockets.remove(ws)
 
-    async def _check_runtime(self, recv, task_status=trio.TASK_STATUS_IGNORED):
+    async def _check_runtime(self, recv, evt: anyio.abc.Event = None):
         """This gets streamed a message when processing begins, and `None`
         when it ends. Repeat.
         """
         task_status.started()
         while True:
-            msg = await recv.receive()
+            msg = await recv.get()
+            if msg is False:
+                return
             assert msg is not None
 
             try:
-                with trio.fail_after(0.2):
-                    msg = await recv.receive()
+                async with anyio.fail_after(0.2):
+                    msg = await recv.get()
+                    if msg is False:
+                        return
                     assert msg is None
-            except trio.TooSlowError:
+            except TimeoutError:
                 log.error("Processing delayed: %s", msg)
-                t = trio.current_time()
+                t = anyio.current_time()
                 # don't hard-fail that fast when debugging
-                with trio.fail_after(1 if 'pdb' not in sys.modules else 99):
-                    msg = await recv.receive()
+                async with anyio.fail_after(1 if 'pdb' not in sys.modules else 99):
+                    msg = await recv.get()
+                    if msg is False:
+                        return
                     assert msg is None
                     pass  # processing delayed, you have a problem
-                log.error("Processing recovered after %.2f sec", trio.current_time()-t)
+                log.error("Processing recovered after %.2f sec", anyio.current_time()-t)
 
     async def __run(self, ws):
         """Drains all messages from a WebSocket, sending them to the client's
@@ -153,8 +160,8 @@ class Client:
 
         :param ws: WebSocket to drain.
         """
-        send_q,recv_q = trio.open_memory_channel(0)
-        await self.nursery.start(self._check_runtime, recv_q)
+        q = anyio.create_queue(0)
+        await self.nursery.start(self._check_runtime, q)
 
         async for msg in ws:
             if isinstance(msg, CloseConnection):
@@ -167,11 +174,11 @@ class Client:
                 log.error("Invalid event: %s", msg)
                 continue
             try:
-                await send_q.send(msg_json)
+                await q.put(msg_json)
                 await self.process_ws(msg_json)
             finally:
-                await send_q.send(None)
-        await send_q.aclose()
+                await q.put(None)
+        await q.put(False)
 
     async def _init(self, RepositoryFactory=Repository):
         await self.swagger.init()
@@ -216,7 +223,7 @@ class Client:
 
         :param name: Name of the repo to get
         :return: Repository, or None if not found.
-        :rtype:  trio_ari.model.Repository
+        :rtype:  asyncari.model.Repository
         """
         return self.repositories.get(name)
 
@@ -475,15 +482,15 @@ class ClientReader:
     link = None
     def __init__(self, client):
         self.client = client
-        self.send_channel,self.recv_channel = trio.open_memory_channel(999)
+        self.q = anyio.create_queue(999)
 
     async def __anext__(self):
         if self.link is None:
             self.link = self.client.on_event('*', self._queue)
-        return await self.recv_channel.receive()
+        return await self.q.get()
 
     async def _queue(self, msg):
-        await self.send_channel.send(msg)
+        await self.q.put(msg)
 
     async def aclose(self):
         if self.link is not None:

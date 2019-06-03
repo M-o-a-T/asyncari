@@ -11,8 +11,8 @@ enters the bridge, a tone is played to the bridge.
 # Copyright (c) 2013, Digium, Inc.
 #
 
-import trio
-import trio_ari
+import anyio
+import asyncari
 import logging
 
 import os
@@ -71,13 +71,13 @@ async def stasis_start_cb(objs, ev):
 
 
 async def main():
-    async with trio_ari.connect(ast_url, ast_app, ast_username,ast_password) as client:
+    async with asyncari.connect(ast_url, ast_app, ast_username,ast_password) as client:
         await setup(client)
         client.on_channel_event('StasisStart', stasis_start_cb)
         # Run the WebSocket
-        await trio.sleep_forever()
+        await anyio.sleep_forever()
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    trio.run(main)
+    anyio.run(main)
 

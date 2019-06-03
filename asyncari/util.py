@@ -4,7 +4,7 @@
 Helper state machines
 """
 
-import trio
+import anyio
 import math
 import inspect
 from asks.errors import BadStatus
@@ -86,23 +86,23 @@ class _ReadNumber(DTMFHandler):
             except BadStatus:
                 pass
 
-    async def _digit_timer_(self, task_status=trio.TASK_STATUS_IGNORED):
+    async def _digit_timer_(self, evt: anyio.abc.Event = None):
         try:
-            with trio.fail_after(self.first_digit_timeout) as sc:
+            async with anyio.fail_after(self.first_digit_timeout) as sc:
                 self._digit_timer = sc
                 task_status.started()
-                await trio.sleep(math.inf)
-        except trio.TooSlowError:
+                await anyio.sleep(math.inf)
+        except TimeoutError:
             await self._stop_playing()
             raise DigitTimeoutError(self.num) from None
 
-    async def _total_timer_(self, task_status=trio.TASK_STATUS_IGNORED):
+    async def _total_timer_(self, evt. anyio.abc.Event = None):
         try:
-            with trio.fail_after(self.total_timeout) as sc:
+            async with anyio.fail_after(self.total_timeout) as sc:
                 self._total_timer = sc
                 task_status.started()
-                await trio.sleep(math.inf)
-        except trio.TooSlowError:
+                await anyio.sleep(math.inf)
+        except TimeoutError:
             await self._stop_playing()
             raise NumberTimeoutError(self.num) from None
 
@@ -113,8 +113,8 @@ class _ReadNumber(DTMFHandler):
 
     async def on_start(self):
         self.num = ""
-        await self.nursery.start(self._digit_timer_)
-        await self.nursery.start(self._total_timer_)
+        await self.tg.spawn(self._digit_timer_)
+        await self.tg.spawn(self._total_timer_)
 
     async def on_dtmf_letter(self, evt):
         """Ignore DTMF letters (A-D)."""
@@ -130,7 +130,7 @@ class _ReadNumber(DTMFHandler):
         self.set_timeout()
 
     def set_timeout(self):
-        self._digit_timer.deadline = trio.current_time() + (self.digit_timeout if self.num else self.first_digit_timeout)
+        self._digit_timer.deadline = anyio.current_time() + (self.digit_timeout if self.num else self.first_digit_timeout)
 
 
 class SyncReadNumber(_ReadNumber,SyncEvtHandler):
