@@ -40,7 +40,9 @@ class DigitTimeoutError(NumberTimeoutError):
 
 class _ReadNumber(DTMFHandler):
     _digit_timer = None
+    _digit_deadline = None
     _total_timer = None
+    _total_deadline = None
 
     def __init__(self, prev, playback=None, timeout=60, first_digit_timeout=None, digit_timeout=10, max_len=15, min_len=5):
         if first_digit_timeout is None:
@@ -87,26 +89,30 @@ class _ReadNumber(DTMFHandler):
                 pass
 
     async def _digit_timer_(self, evt: anyio.abc.Event = None):
-        try:
-            async with anyio.fail_after(self.first_digit_timeout) as sc:
-                self._digit_timer = sc
-                if evt is not None:
-                    await evt.set()
-                await anyio.sleep(math.inf)
-        except TimeoutError:
-            await self._stop_playing()
-            raise DigitTimeoutError(self.num) from None
+        self._digit_deadline = self.first_digit_timeout + await anyio.current_time()
+        async with anyio.open_cancel_scope() as sc:
+            self._digit_timer = sc
+            if evt is not None:
+                await evt.set()
+            while True:
+                delay = self._digit_deadline - await anyio.current_time()
+                if delay <= 0:
+                    await self._stop_playing()
+                    raise DigitTimeoutError(self.num) from None
+                await anyio.sleep(delay)
 
     async def _total_timer_(self, evt: anyio.abc.Event = None):
-        try:
-            async with anyio.fail_after(self.total_timeout) as sc:
-                self._total_timer = sc
-                if evt is not None:
-                    await evt.set()
-                await anyio.sleep(math.inf)
-        except TimeoutError:
-            await self._stop_playing()
-            raise NumberTimeoutError(self.num) from None
+        self._total_deadline = self.total_timeout + await anyio.current_time()
+        async with anyio.open_cancel_scope() as sc:
+            self._total_timer = sc
+            if evt is not None:
+                await evt.set()
+            while True:
+                delay = self._total_deadline - await anyio.current_time()
+                if delay <= 0:
+                    await self._stop_playing()
+                    raise NumberTimeoutError(self.num) from None
+                await anyio.sleep(delay)
 
     async def done(self, res):
         await super().done(res)
@@ -132,7 +138,7 @@ class _ReadNumber(DTMFHandler):
         await self.set_timeout()
 
     async def set_timeout(self):
-        self._digit_timer.deadline = (await anyio.current_time()) + (self.digit_timeout if self.num else self.first_digit_timeout)
+        self._digit_deadline = (await anyio.current_time()) + (self.digit_timeout if self.num else self.first_digit_timeout)
 
 
 class SyncReadNumber(_ReadNumber,SyncEvtHandler):
