@@ -127,9 +127,9 @@ class _ReadNumber(DTMFHandler):
             res = await res
         if isinstance(res, str):
             self.num = res
-        self.set_timeout()
+        await self.set_timeout()
 
-    def set_timeout(self):
+    async def set_timeout(self):
         self._digit_timer.deadline = (await anyio.current_time()) + (self.digit_timeout if self.num else self.first_digit_timeout)
 
 
