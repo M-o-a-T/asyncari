@@ -866,6 +866,10 @@ class ToplevelChannelState(ChannelState):
 	async def hang_up(self, reason="normal"):
 		await self.channel.set_reason(reason)
 		await self.channel.hang_up()
+	
+	async def done(self):
+		await self.channel.hang_up()
+		await super().done()
 
 class OutgoingChannelState(ToplevelChannelState):
 	"""A channel state machine that waits for an initial StasisStart event before proceeding"""

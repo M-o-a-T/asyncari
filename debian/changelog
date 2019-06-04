@@ -1,3 +1,9 @@
+asyncari (0.3.3-2) unstable; urgency=medium
+
+  * Hang up more
+
+ -- Matthias Urlichs <matthias@urlichs.de>  Tue, 04 Jun 2019 11:50:16 +0200
+
 asyncari (0.3.3-1) unstable; urgency=medium
 
   * Hang up channels
