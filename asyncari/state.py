@@ -234,11 +234,10 @@ class BaseEvtHandler:
 		else:
 			await self._handle_here(evt)
 
+
 	async def _handle_here(self, evt):
-		try:
+		if self._q is not None:
 			await self._q.put(evt)
-		except anyio.ClosedResourceError:
-			log.info("Unhandled event %s on %s (closed)", evt.type, self)
 
 
 	async def _dispatch(self, evt):
