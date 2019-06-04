@@ -90,7 +90,8 @@ class _ReadNumber(DTMFHandler):
         try:
             async with anyio.fail_after(self.first_digit_timeout) as sc:
                 self._digit_timer = sc
-                task_status.started()
+                if evt is not None:
+                    await evt.set()
                 await anyio.sleep(math.inf)
         except TimeoutError:
             await self._stop_playing()
@@ -100,7 +101,8 @@ class _ReadNumber(DTMFHandler):
         try:
             async with anyio.fail_after(self.total_timeout) as sc:
                 self._total_timer = sc
-                task_status.started()
+                if evt is not None:
+                    await evt.set()
                 await anyio.sleep(math.inf)
         except TimeoutError:
             await self._stop_playing()
