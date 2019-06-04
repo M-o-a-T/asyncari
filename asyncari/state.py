@@ -208,7 +208,7 @@ class BaseEvtHandler:
 			await self._done.wait()
 
 
-	def done_sub(self):
+	async def done_sub(self):
 		"""Terminate my sub-handler, assuming one exists.
 
 		Returns True if there was a sub-handler to cancel, False
