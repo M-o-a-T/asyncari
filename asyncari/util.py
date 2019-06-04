@@ -61,7 +61,7 @@ class _ReadNumber(DTMFHandler):
         The default clears the number on '*' and returns it on '#',
         assuming that the length restrictions are obeyed.
 
-        This method may call `self.done` with the dialled number, update
+        This method may call `await self.done` with the dialled number, update
         `self.num`, or raise an exception. A string is used to replace the
         current temporary number.
         

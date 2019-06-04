@@ -202,7 +202,7 @@ class BaseEvtHandler:
 
 
 	async def __aexit__(self, *tb):
-		self.done()
+		await self.done()
 
 		if self._done is not None:
 			await self._done.wait()
@@ -216,7 +216,7 @@ class BaseEvtHandler:
 		"""
 		if not self._sub:
 			return False
-		self._sub.done()
+		await self._sub.done()
 		self._sub = None
 		return True
 
@@ -333,7 +333,7 @@ class BaseEvtHandler:
 				return TimeoutEvent()
 
 			async on_MyTimeout(self, evt):
-				self.done(None)
+				await self.done(None)
 
 		Raises StopAsyncIteration when no more events will arrive.
 		"""
@@ -436,12 +436,12 @@ class _EvtHandler(BaseEvtHandler):
 		# alias "await Handler()" to "await Handler()._await()"
 		return self._await().__await__()
 
-	def done(self, result=None):
+	async def done(self, result=None):
 		"""Signal that this event handler has finished with this result.
 		"""
 		if result is not None:
 			self._result = result
-		super().done()
+		await super().done()
 
 	async def _await(self):
 		raise RuntimeError("Use a subclass.")
@@ -453,7 +453,7 @@ class AsyncEvtHandler(_EvtHandler):
 
 		class MenuOne(AsyncEvtHandler):
 			pass  # do whatever it takes to handle this submenu
-			# Somewhere in there you'll call "self.done(RESULT)"
+			# Somewhere in there you'll call "await self.done(RESULT)"
 
 		async def on_dtmf_1(self evt):
 			await MenuOne(self)  # this returns (almost) immediately
@@ -495,7 +495,7 @@ class SyncEvtHandler(_EvtHandler):
 
 		class MenuOne(SyncEvtHandler):
 			pass  # do whatever it takes to handle this submenu
-			# Somewhere in there you'll call "self.done(RESULT)"
+			# Somewhere in there you'll call "await self.done(RESULT)"
 
 		@as_task
 		async def on_digit_1(self evt):
@@ -585,8 +585,8 @@ class ChannelState(_ThingEvtHandler):
 		res.append(("ch_state",self.channel.state))
 		return res
 
-	def on_StasisEnd(self, evt):
-		self.done()
+	async def on_StasisEnd(self, evt):
+		await self.done()
 
 
 class BridgeState(_ThingEvtHandler):
@@ -845,7 +845,7 @@ class HangupBridgeState(BridgeState):
 	async def on_channel_end(self, ch, evt=None):
 		await super().on_channel_end(ch, evt)
 		if _count(1 for c in self.bridge.channels if c.state == 'Up') < 2:
-			self.done()
+			await self.done()
 
 
 class ToplevelChannelState(ChannelState):
