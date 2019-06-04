@@ -135,7 +135,7 @@ class BaseEvtHandler:
 	async def start_task(self):
 		"""This is a shortcut for running this object's async context
 		manager / event loop in a separate task."""
-		await self._base_taskgroup.spawn(self._run_ctx, name="start_task "+self.ref_id)
+		await self._base_tg.spawn(self._run_ctx, name="start_task "+self.ref_id)
 
 	async def _run_ctx(self, evt: anyio.abc.Event = None):
 		assert self._done is None
