@@ -54,7 +54,7 @@ class _ReadNumber(DTMFHandler):
 
         super().__init__(prev)
 
-    def add_digit(self, digit):
+    async def add_digit(self, digit):
         """
         Add this digit to the current number.
 
@@ -122,7 +122,7 @@ class _ReadNumber(DTMFHandler):
 
     async def on_dtmf(self, evt):
         await self._stop_playing()
-        res = self.add_digit(evt.digit)
+        res = await self.add_digit(evt.digit)
         if inspect.iscoroutine(res):
             res = await res
         if isinstance(res, str):
