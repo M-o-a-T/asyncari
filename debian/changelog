@@ -1,3 +1,9 @@
+asyncari (0.3.1-1) unstable; urgency=medium
+
+  * stupid typo 
+
+ -- Matthias Urlichs <matthias@urlichs.de>  Tue, 04 Jun 2019 10:13:21 +0200
+
 asyncari (0.3.0-1) unstable; urgency=medium
 
   * Rename to asyncari

@@ -96,7 +96,7 @@ class _ReadNumber(DTMFHandler):
             await self._stop_playing()
             raise DigitTimeoutError(self.num) from None
 
-    async def _total_timer_(self, evt. anyio.abc.Event = None):
+    async def _total_timer_(self, evt: anyio.abc.Event = None):
         try:
             async with anyio.fail_after(self.total_timeout) as sc:
                 self._total_timer = sc
