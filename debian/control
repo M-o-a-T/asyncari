@@ -7,6 +7,7 @@ Build-Depends: dh-python, python3-setuptools, python3-all, debhelper (>= 9),
   python3-asyncswagger11,
   python3-attr (>= 18),
   python3-asyncwebsockets,
+  python3-setuptools-scm,
 Standards-Version: 3.9.6
 Homepage: https://github.com/M-o-a-T/asyncari
 
