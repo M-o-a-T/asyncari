@@ -132,10 +132,10 @@ class BaseEvtHandler:
 		self.client = client
 		self._base_tg = taskgroup or client.taskgroup
 
-	async def start_task(self):
+	async def start_task(self, evt=None):
 		"""This is a shortcut for running this object's async context
 		manager / event loop in a separate task."""
-		await self._base_tg.spawn(self._run_ctx, name="start_task "+self.ref_id)
+		await self._base_tg.spawn(functools.partial(self._run_ctx, evt=evt), name="start_task "+self.ref_id)
 
 	async def _run_ctx(self, evt: anyio.abc.Event = None):
 		assert self._done is None
@@ -494,7 +494,9 @@ class AsyncEvtHandler(_EvtHandler):
 			await self._handle_prev(_ResultEvent(self._result))
 
 	async def _await(self):
-		await self._start_task()
+		evt = anyio.create_event()
+		await self.start_task(evt)
+		await evt.wait()
 
 
 class SyncEvtHandler(_EvtHandler):
