@@ -513,9 +513,13 @@ class SyncEvtHandler(_EvtHandler):
 	Alternately, use :class:`AsyncEvtHandler` and `on_result`.
 	"""
 
+	def __init__(self, prev, evt=None):
+		self._sync_evt = evt
+		super().__init__(prev)
+
 	async def _await(self):
 		"""This does not use context management, because we want to get errors."""
-		await self._run_with_tg()
+		await self._run_with_tg(evt=self._sync_evt)
 
 		if isinstance(self._result, Exception):
 			raise self._result
