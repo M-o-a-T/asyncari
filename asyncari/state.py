@@ -413,6 +413,16 @@ class _EvtHandler(BaseEvtHandler):
 		self._prev = prev
 		super().__init__(prev.client, taskgroup=prev.taskgroup)
 
+#	async def run(self, evt: anyio.abc.Event = None):
+#		"""
+#		Shuffle queued events from my parent to me before starting.
+#		"""
+#		pq = self._prev._q
+#		while pq.qsize():
+#			msg = await pq.get()
+#			await self._q.put(msg)
+#		await super().run(evt=evt)
+#
 	async def _handle_prev(self, evt):
 		await self._prev._handle_here(evt)
 		return True
