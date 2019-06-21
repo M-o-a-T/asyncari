@@ -19,7 +19,7 @@ import logging
 log = logging.getLogger(__name__)
 
 __all__ = ["ToplevelChannelState", "ChannelState", "BridgeState", "HangupBridgeState", "OutgoingChannelState",
-           "DTMFHandler", "EvtHandler", "as_task"]
+           "DTMFHandler", "EvtHandler", "as_task", "as_handler_task"]
 
 _StartEvt = "_StartEvent"
 
@@ -58,6 +58,15 @@ def as_task(proc):
 	@functools.wraps(proc)
 	async def worker(self, *a, **kw):
 		await self.taskgroup.spawn(functools.partial(proc, self, *a, **kw), name=proc.__name__)
+	assert inspect.iscoroutinefunction(proc)
+	return worker
+
+def as_handler_task(proc):
+	@functools.wraps(proc)
+	async def worker(self, *a, **kw):
+		evt = anyio.create_event()
+		await self.taskgroup.spawn(functools.partial(proc, self, *a, done_evt=evt, **kw), name=proc.__name__)
+		await evt.wait()
 	assert inspect.iscoroutinefunction(proc)
 	return worker
 
@@ -473,7 +482,7 @@ class AsyncEvtHandler(_EvtHandler):
 		async def on_error(self, err):
 			raise err  # do whatever you want with the error
 
-	Alternately, use :class:`SyncEvtHandler` in a separate task.
+	Alternately, use :class:`SyncEvtHandler`.
 
 	"""
 	async def _run_with_tg(self, *, evt: anyio.abc.Event = None):
@@ -508,21 +517,26 @@ class SyncEvtHandler(_EvtHandler):
 			pass  # do whatever it takes to handle this submenu
 			# Somewhere in there you'll call "await self.done(RESULT)"
 
-		@as_task
-		async def on_digit_1(self evt):
+		@as_handler_task
+		async def on_digit_1(self, evt, done_evt):
 			try:
-				res = await MenuOne(self)
+				res = await MenuOne(self, done_evt)
 			except Exception as err:
 				raise  # do whatever you want with the error
 			else:
 				pass  # do whatever you want with RESULT
 
-	You **must** decorate your handler with :func:`as_task` or otherwise
-	delegate this call to another task. If you don't, event handling **will**
-	deadlock. You'll also get an error message that your event handler
-	takes too long.
+	You **must** decorate any callback that starts a sync event handler with
+	:func:`as_handler_task`. If you don't, event handling **will**
+	deadlock. You'll also get an error message that your event handler took
+	too long.
 
-	Alternately, use :class:`AsyncEvtHandler` and `on_result`.
+	The ``done_evt`` parameter is injected by ``@as_handler_task``. Its
+	purpose is to manage blocking the event handling machinery until the
+	new handler has registered itself. Otherwise, additional events that
+	arrive while the handler is set up would be processed by the parent.
+
+	Alternately, use :class:`AsyncEvtHandler` and an `on_result` handler.
 	"""
 
 	def __init__(self, prev, evt=None):
