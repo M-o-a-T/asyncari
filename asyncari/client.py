@@ -31,12 +31,18 @@ class _EventHandler(object):
     """Class to allow events to be unsubscribed.
     """
 
-    def __init__(self, client, event_type, mangler=None):
+    def __init__(self, client, event_type, mangler=None, filter=None):
         self.client = client
         self.event_type = event_type
         self.mangler = mangler
+        if filter is None:
+            def filter(evt):
+                return True
+        self.filter = filter
 
     async def __call__(self, msg):
+        if not self.filter(msg):
+            return
         await self.q.put(msg)
 
     def open(self):
@@ -135,6 +141,13 @@ class Client:
             self._reader = _EventHandler(self,'*')
             self._reader.open()
         return self._reader
+
+    def on_start_of(self, endpoint):
+        """
+        Iterator for StasisStart on a particular sub-endpoint
+        """
+        return self.on_channel_event("StasisStart",
+                filter=lambda evt: evt.args[0] == endpoint)
 
     async def _run(self, evt: anyio.abc.Event = None):
         """Connect to the WebSocket and begin processing messages.
@@ -284,7 +297,7 @@ class Client:
         # Next, dispatch the event to the objects in the message
         await msg._send_event()
 
-    def on_event(self, event_type, mangler=None):
+    def on_event(self, event_type, mangler=None, filter=None):
         """Listener for events with given type.
 
         :param event_type: String name of the event to register for.
@@ -295,9 +308,9 @@ class Client:
                 async for objs, event in listener:
                     await client.spawn(handle_new_client, objs, event)
         """
-        return _EventHandler(self, event_type, mangler=mangler)
+        return _EventHandler(self, event_type, mangler=mangler, filter=filter)
 
-    def on_object_event(self, event_type, factory_fn, model_id):
+    def on_object_event(self, event_type, factory_fn, model_id, filter=None):
         """Listener for events with the given type. Event fields of
         the given model_id type are converted to objects.
 
@@ -349,9 +362,9 @@ class Client:
                     obj = None
             return (obj, event)
 
-        return self.on_event(event_type, mangler=extract_objects)
+        return self.on_event(event_type, mangler=extract_objects, filter=filter)
 
-    def on_channel_event(self, event_type):
+    def on_channel_event(self, event_type, filter=None):
         """Listener for Channel related events
 
         :param event_type: Name of the event to register for.
@@ -362,56 +375,56 @@ class Client:
                 async for objs, event in listener:
                     await client.spawn(handle_new_client, objs, event)
         """
-        return self.on_object_event(event_type, Channel, 'Channel')
+        return self.on_object_event(event_type, Channel, 'Channel', filter=filter)
 
-    def on_bridge_event(self, event_type):
+    def on_bridge_event(self, event_type, filter=None):
         """Listener for Bridge related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, Bridge, 'Bridge')
+        return self.on_object_event(event_type, Bridge, 'Bridge', filter=filter)
 
-    def on_playback_event(self, event_type):
+    def on_playback_event(self, event_type, filter=None):
         """Listener for Playback related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, Playback, 'Playback')
+        return self.on_object_event(event_type, Playback, 'Playback', filter=filter)
 
-    def on_live_recording_event(self, event_type):
+    def on_live_recording_event(self, event_type, filter=None):
         """Listener for LiveRecording related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, LiveRecording, 'LiveRecording')
+        return self.on_object_event(event_type, LiveRecording, 'LiveRecording', filter=filter)
 
-    def on_stored_recording_event(self, event_type):
+    def on_stored_recording_event(self, event_type, filter=None):
         """Listener for StoredRecording related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, StoredRecording, 'StoredRecording')
+        return self.on_object_event(event_type, StoredRecording, 'StoredRecording', filter=filter)
 
-    def on_endpoint_event(self, event_type):
+    def on_endpoint_event(self, event_type, filter=None):
         """Listener for Endpoint related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, Endpoint, 'Endpoint')
+        return self.on_object_event(event_type, Endpoint, 'Endpoint', filter=filter)
 
-    def on_device_state_event(self, event_type):
+    def on_device_state_event(self, event_type, filter=None):
         """Listener for DeviceState related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, DeviceState, 'DeviceState')
+        return self.on_object_event(event_type, DeviceState, 'DeviceState', filter=filter)
 
-    def on_sound_event(self, event_type):
+    def on_sound_event(self, event_type, filter=None):
         """Listener for Sound related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, Sound, 'Sound')
+        return self.on_object_event(event_type, Sound, 'Sound', filter=filter)
 
 class EventMessage:
     """This class encapsulates an event.
@@ -467,23 +480,4 @@ class EventMessage:
     def _get(self, k, v=None):
         return self._orig_msg.get(k, v)
 
-
-class ClientReader:
-    link = None
-    def __init__(self, client):
-        self.client = client
-        self.q = anyio.create_queue(999)
-
-    async def __anext__(self):
-        if self.link is None:
-            self.link = self.client.on_event('*', self._queue)
-        return await self.q.get()
-
-    async def _queue(self, msg):
-        await self.q.put(msg)
-
-    async def aclose(self):
-        if self.link is not None:
-            self.link.close()
-            self.link = None
 
