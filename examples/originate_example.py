@@ -43,13 +43,7 @@ class CallerState(ToplevelChannelState, DTMFHandler):
     async def on_dtmf(self,evt):
         print("*DTMF*INT*",evt.digit)
 
-def on_start(objs, event, client):
-    # Don't process our own dial
-    if event['args'][0] == 'dialed':
-        return
-    await client.taskgroup.spawn(_on_start, objs, event, client)
-
-async def _on_start(objs, event, client):
+async def on_start(client):
     """Callback for StasisStart events.
 
     When an incoming channel starts, put it in the holding bridge and
@@ -61,13 +55,17 @@ async def _on_start(objs, event, client):
     """
 
     # Answer and put in the holding bridge
-    incoming = objs['channel']
-    cs = CallerState(incoming)
-    await cs.run()
+    async with client.on_channel_event('StasisStart') as listener:
+        async for objs, event in listener:
+            if event['args'][0] == 'dialed':
+                continue
+            incoming = objs['channel']
+            cs = CallerState(incoming)
+            await cs.start_task()
 
 async def main():
     async with asyncari.connect(ast_url, ast_app, ast_username,ast_password) as client:
-        client.on_channel_event('StasisStart', on_start, client)
+        await client.taskgroup.spawn(on_start, client)
         async for m in client:
             #print("** EVENT **", m)
             pprint(("** EVENT **", m, vars(m)))

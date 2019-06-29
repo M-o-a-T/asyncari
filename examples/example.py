@@ -49,7 +49,7 @@ class State(ToplevelChannelState, DTMFHandler):
             except asks.errors.BadStatus:
                 pass
         
-async def on_start(objs, event, client):
+async def on_start(client):
     
     """Callback for StasisStart events.
 
@@ -59,13 +59,15 @@ async def on_start(objs, event, client):
     :param channel: Channel DTMF was received from.
     :param event: Event.
     """
-    channel = objs['channel']
-    await channel.answer()
-    await client.taskgroup.spawn(State(channel).start_task)
+    async with client.on_channel_event('StasisStart') as listener:
+        async for objs, event in listener:
+            channel = objs['channel']
+            await channel.answer()
+            await client.taskgroup.spawn(State(channel).start_task)
 
 async def main():
     async with asyncari.connect(ast_url, ast_app, ast_username,ast_password) as client:
-        client.on_channel_event('StasisStart', on_start, client)
+        await client.taskgroup.spawn(on_start, client)
         # Run the WebSocket
         async for m in client:
             print("** EVENT **", m)
