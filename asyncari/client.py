@@ -49,9 +49,11 @@ class _EventHandler(object):
 
     def open(self):
         self.q = anyio.create_queue(10)
+        log.debug("ADD %s",self.event_type)
         self.client.event_listeners.setdefault(self.event_type, list()).append(self)
 
     def close(self):
+        log.debug("DEL %s",self.event_type)
         self.client.event_listeners[self.event_type].remove(self)
 
     async def __aenter__(self):

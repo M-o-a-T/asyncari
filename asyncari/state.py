@@ -208,6 +208,7 @@ class BaseEvtHandler:
 		This call cancels the main loop, if any, as well as the loop of any
 		sub-event handlers which might be running.
 		"""
+		log.debug("TeardownRun %r < %r", self, getattr(self,'_prev',None))
 		if self._tg is not None:
 			await self._tg.cancel_scope.cancel()
 
@@ -287,7 +288,7 @@ class BaseEvtHandler:
 
 		Do not replace this method. Do not call it directly.
 		"""
-		log.debug("StartRun %s", self)
+		log.debug("SetupRun %r < %r", self, getattr(self,'_prev',None))
 		if evt is not None:
 			await evt.set()
 		await self.on_start()
@@ -304,6 +305,7 @@ class BaseEvtHandler:
 		if evt is not None:
 			await evt.set()
 		try:
+			log.debug("StartRun %r < %r", self, getattr(self,'_prev',None))
 			while True:
 				self._n_proc += 1
 				try:
@@ -327,7 +329,7 @@ class BaseEvtHandler:
 						await self._handle_prev(evt)
 
 		finally:
-			log.debug("StopRun %s", self)
+			log.debug("StopRun %r < %r", self, getattr(self,'_prev',None))
 
 	async def get_event(self):
 		"""
