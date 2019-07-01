@@ -14,6 +14,8 @@ from asyncswagger11.client import SwaggerClient
 import time
 import inspect
 import sys
+from pprint import pformat
+
 from wsproto.events import CloseConnection, TextMessage
 from .model import CLASS_MAP
 
@@ -288,7 +290,7 @@ class Client:
         msg = EventMessage(self, msg)
 
         # First, call traditional listeners
-        log.debug("DISP ***** Dispatch:%s", msg)
+        log.debug("DISP ***** Dispatch:%s\n%s", msg, pformat(vars(msg)))
         listeners = list(self.event_listeners.get(msg['type'], [])) \
                     + list(self.event_listeners.get('*', []))
         for listener in listeners:
