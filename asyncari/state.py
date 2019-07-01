@@ -609,6 +609,9 @@ class ChannelState(_ThingEvtHandler):
 		except AttributeError:
 			pass
 
+	async def on_ChannelDestroyed(self, evt):
+		await self.done()
+
 	async def on_StasisEnd(self, evt):
 		await self.done()
 
