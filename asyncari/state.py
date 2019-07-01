@@ -54,6 +54,17 @@ class _ErrorEvent:
 	def __init__(self,exc):
 		self.exc = exc
 
+class DialFailed(RuntimeError):
+	"""
+	This exception is raised when dialling fails to establish a channel.
+	"""
+	def __init__(self, status, cause_code=None):
+		self.status = status
+		self.cause_code = cause_code
+
+	def repr(self):
+		return "<%s:%s %s>" % (self.__class__.__name__, self.status, self.cause_code)
+
 def as_task(proc):
 	@functools.wraps(proc)
 	async def worker(self, *a, **kw):
@@ -575,6 +586,7 @@ class _ThingEvtHandler(BaseEvtHandler):
 class ChannelState(_ThingEvtHandler):
 	"""This is the generic state machine for a single channel."""
 	_src = 'channel'
+	last_cause = None
 	def __init__(self, channel):
 		self.channel = channel
 		super().__init__(channel.client)
@@ -582,7 +594,16 @@ class ChannelState(_ThingEvtHandler):
 	def _repr(self):
 		res=super()._repr()
 		res.append(("ch_state",self.channel.state))
+		if self.last_cause is not None:
+			res.append(("cause",self.last_cause))
 		return res
+
+	async def on_ChannelHangupRequest(self, evt):
+		"""kills the channel"""
+		try:
+			self.last_cause = evt.cause
+		except AttributeError:
+			pass
 
 	async def on_StasisEnd(self, evt):
 		await self.done()
