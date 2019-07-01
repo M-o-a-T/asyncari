@@ -190,6 +190,7 @@ class Client:
                 self.websockets.remove(ws)
                 async with anyio.open_cancel_scope(shield=True):
                     await ws.close()
+            del self._app
 
     async def _check_runtime(self, recv, evt: anyio.abc.Event = None):
         """This gets streamed a message when processing begins, and `None`
