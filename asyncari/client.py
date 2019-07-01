@@ -443,6 +443,10 @@ class EventMessage:
     """This class encapsulates an event.
     All elements with known types are converted to objects,
     if a class for them is registered.
+
+    Note::
+        The "Dial" event is converted to "DialStart", "DialState" or
+        "DialResult" depending on whether ``dialstatus`` is empty or not.
     """
     def __init__(self, client, msg):
         self._client = client
@@ -476,6 +480,14 @@ class EventMessage:
                 v = factory(client, json=v)
 
             setattr(self, k, v)
+
+        if self.type == "Dial":
+            if self.dialstatus == "":
+                self.type = "DialStart"
+            elif self.dialstatus in {"PROGRESS"}:
+                self.type = "DialState"
+            else:
+                self.type = "DialResult"
 
     def __repr__(self):
         return "<%s %s>" % (self.__class__.__name__, self.type)
