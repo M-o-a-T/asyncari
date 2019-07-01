@@ -167,23 +167,29 @@ class Client:
         This is a coroutine. Don't call it directly, it's autostarted by
         the context manager.
         """
+        ws = None
         apps = self._apps
         if isinstance(apps, list):
             self._app = apps[0]
             apps = ','.join(apps)
         else:
             self._app = apps.split(',',1)[0]
-        ws = await self.swagger.events.eventWebsocket(app=apps)
-        self.websockets.add(ws)
 
-        # For tests
         try:
+            ws = await self.swagger.events.eventWebsocket(app=apps)
+            self.websockets.add(ws)
+
+            # For tests
             if evt is not None:
                 await evt.set()
+
             await self.__run(ws)
+
         finally:
-            await ws.close()
-            self.websockets.remove(ws)
+            if ws is not None:
+                self.websockets.remove(ws)
+                async with anyio.open_cancel_scope(shield=True):
+                    await ws.close()
 
     async def _check_runtime(self, recv, evt: anyio.abc.Event = None):
         """This gets streamed a message when processing begins, and `None`
