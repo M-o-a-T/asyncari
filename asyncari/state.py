@@ -54,6 +54,17 @@ class _ErrorEvent:
 	def __init__(self,exc):
 		self.exc = exc
 
+class DialFailed(RuntimeError):
+	"""
+	This exception is raised when dialling fails to establish a channel.
+	"""
+	def __init__(self, status, cause_code=None):
+		self.status = status
+		self.cause_code = cause_code
+
+	def repr(self):
+		return "<%s:%s %s>" % (self.__class__.__name__, self.status, self.cause_code)
+
 def as_task(proc):
 	@functools.wraps(proc)
 	async def worker(self, *a, **kw):
@@ -206,6 +217,7 @@ class BaseEvtHandler:
 		This call cancels the main loop, if any, as well as the loop of any
 		sub-event handlers which might be running.
 		"""
+		log.debug("TeardownRun %r < %r", self, getattr(self,'_prev',None))
 		if self._tg is not None:
 			await self._tg.cancel_scope.cancel()
 
@@ -285,7 +297,7 @@ class BaseEvtHandler:
 
 		Do not replace this method. Do not call it directly.
 		"""
-		log.debug("StartRun %s", self)
+		log.debug("SetupRun %r < %r", self, getattr(self,'_prev',None))
 		if evt is not None:
 			await evt.set()
 		await self.on_start()
@@ -302,6 +314,7 @@ class BaseEvtHandler:
 		if evt is not None:
 			await evt.set()
 		try:
+			log.debug("StartRun %r < %r", self, getattr(self,'_prev',None))
 			while True:
 				self._n_proc += 1
 				try:
@@ -325,7 +338,7 @@ class BaseEvtHandler:
 						await self._handle_prev(evt)
 
 		finally:
-			log.debug("StopRun %s", self)
+			log.debug("StopRun %r < %r", self, getattr(self,'_prev',None))
 
 	async def get_event(self):
 		"""
@@ -605,6 +618,7 @@ class _ThingEvtHandler(BaseEvtHandler):
 class ChannelState(_ThingEvtHandler):
 	"""This is the generic state machine for a single channel."""
 	_src = 'channel'
+	last_cause = None
 	def __init__(self, channel):
 		self.channel = channel
 		super().__init__(channel.client)
@@ -612,7 +626,23 @@ class ChannelState(_ThingEvtHandler):
 	def _repr(self):
 		res=super()._repr()
 		res.append(("ch_state",self.channel.state))
+		if self.last_cause is not None:
+			res.append(("cause",self.last_cause))
 		return res
+
+	async def on_DialResult(self, evt):
+		if evt.dialstatus != "ANSWER":
+			raise DialFailed(evt.dialstatus, self.last_cause)
+
+	async def on_ChannelHangupRequest(self, evt):
+		"""kills the channel"""
+		try:
+			self.last_cause = evt.cause
+		except AttributeError:
+			pass
+
+	async def on_ChannelDestroyed(self, evt):
+		await self.done()
 
 	async def on_StasisEnd(self, evt):
 		await self.done()

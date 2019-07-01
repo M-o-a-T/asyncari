@@ -97,7 +97,7 @@ class Repository(object):
                 try:
                     res = await oper(**kwargs)
                 except BadStatus as exc:
-                    raise OperationError(getattr(exc,'data',{'message':exc.body})['message']) from exc
+                    raise OperationError(getattr(exc,'data',{'message':getattr(exc,'body',"")})['message']) from exc
 
                 res = await promote(self.p.client, res, jsc)
                 return res

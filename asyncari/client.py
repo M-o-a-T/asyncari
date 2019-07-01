@@ -14,6 +14,8 @@ from asyncswagger11.client import SwaggerClient
 import time
 import inspect
 import sys
+from pprint import pformat
+
 from wsproto.events import CloseConnection, TextMessage
 from .model import CLASS_MAP
 
@@ -31,19 +33,27 @@ class _EventHandler(object):
     """Class to allow events to be unsubscribed.
     """
 
-    def __init__(self, client, event_type, mangler=None):
+    def __init__(self, client, event_type, mangler=None, filter=None):
         self.client = client
         self.event_type = event_type
         self.mangler = mangler
+        if filter is None:
+            def filter(evt):
+                return True
+        self.filter = filter
 
     async def __call__(self, msg):
+        if not self.filter(msg):
+            return
         await self.q.put(msg)
 
     def open(self):
         self.q = anyio.create_queue(10)
+        log.debug("ADD %s",self.event_type)
         self.client.event_listeners.setdefault(self.event_type, list()).append(self)
 
     def close(self):
+        log.debug("DEL %s",self.event_type)
         self.client.event_listeners[self.event_type].remove(self)
 
     async def __aenter__(self):
@@ -136,6 +146,19 @@ class Client:
             self._reader.open()
         return self._reader
 
+    def on_start_of(self, endpoint):
+        """
+        Iterator for StasisStart on a particular sub-endpoint.
+
+        Returns an async iterator that yields (channel,start_event) tuples.
+        """
+        return self.on_channel_event("StasisStart",
+                filter=lambda evt: evt.args[0] == endpoint)
+
+    @property
+    def app(self):
+        return self._app
+
     async def _run(self, evt: anyio.abc.Event = None):
         """Connect to the WebSocket and begin processing messages.
 
@@ -148,23 +171,30 @@ class Client:
         This is a coroutine. Don't call it directly, it's autostarted by
         the context manager.
         """
+        ws = None
         apps = self._apps
         if isinstance(apps, list):
             self._app = apps[0]
             apps = ','.join(apps)
         else:
             self._app = apps.split(',',1)[0]
-        ws = await self.swagger.events.eventWebsocket(app=apps)
-        self.websockets.add(ws)
 
-        # For tests
         try:
+            ws = await self.swagger.events.eventWebsocket(app=apps)
+            self.websockets.add(ws)
+
+            # For tests
             if evt is not None:
                 await evt.set()
+
             await self.__run(ws)
+
         finally:
-            await ws.close()
-            self.websockets.remove(ws)
+            if ws is not None:
+                self.websockets.remove(ws)
+                async with anyio.open_cancel_scope(shield=True):
+                    await ws.close()
+            del self._app
 
     async def _check_runtime(self, recv, evt: anyio.abc.Event = None):
         """This gets streamed a message when processing begins, and `None`
@@ -275,7 +305,7 @@ class Client:
         msg = EventMessage(self, msg)
 
         # First, call traditional listeners
-        log.debug("DISP ***** Dispatch:%s", msg)
+        log.debug("DISP ***** Dispatch:%s\n%s", msg, pformat(vars(msg)))
         listeners = list(self.event_listeners.get(msg['type'], [])) \
                     + list(self.event_listeners.get('*', []))
         for listener in listeners:
@@ -284,7 +314,7 @@ class Client:
         # Next, dispatch the event to the objects in the message
         await msg._send_event()
 
-    def on_event(self, event_type, mangler=None):
+    def on_event(self, event_type, mangler=None, filter=None):
         """Listener for events with given type.
 
         :param event_type: String name of the event to register for.
@@ -295,9 +325,9 @@ class Client:
                 async for objs, event in listener:
                     await client.spawn(handle_new_client, objs, event)
         """
-        return _EventHandler(self, event_type, mangler=mangler)
+        return _EventHandler(self, event_type, mangler=mangler, filter=filter)
 
-    def on_object_event(self, event_type, factory_fn, model_id):
+    def on_object_event(self, event_type, factory_fn, model_id, filter=None):
         """Listener for events with the given type. Event fields of
         the given model_id type are converted to objects.
 
@@ -349,9 +379,9 @@ class Client:
                     obj = None
             return (obj, event)
 
-        return self.on_event(event_type, mangler=extract_objects)
+        return self.on_event(event_type, mangler=extract_objects, filter=filter)
 
-    def on_channel_event(self, event_type):
+    def on_channel_event(self, event_type, filter=None):
         """Listener for Channel related events
 
         :param event_type: Name of the event to register for.
@@ -362,61 +392,65 @@ class Client:
                 async for objs, event in listener:
                     await client.spawn(handle_new_client, objs, event)
         """
-        return self.on_object_event(event_type, Channel, 'Channel')
+        return self.on_object_event(event_type, Channel, 'Channel', filter=filter)
 
-    def on_bridge_event(self, event_type):
+    def on_bridge_event(self, event_type, filter=None):
         """Listener for Bridge related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, Bridge, 'Bridge')
+        return self.on_object_event(event_type, Bridge, 'Bridge', filter=filter)
 
-    def on_playback_event(self, event_type):
+    def on_playback_event(self, event_type, filter=None):
         """Listener for Playback related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, Playback, 'Playback')
+        return self.on_object_event(event_type, Playback, 'Playback', filter=filter)
 
-    def on_live_recording_event(self, event_type):
+    def on_live_recording_event(self, event_type, filter=None):
         """Listener for LiveRecording related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, LiveRecording, 'LiveRecording')
+        return self.on_object_event(event_type, LiveRecording, 'LiveRecording', filter=filter)
 
-    def on_stored_recording_event(self, event_type):
+    def on_stored_recording_event(self, event_type, filter=None):
         """Listener for StoredRecording related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, StoredRecording, 'StoredRecording')
+        return self.on_object_event(event_type, StoredRecording, 'StoredRecording', filter=filter)
 
-    def on_endpoint_event(self, event_type):
+    def on_endpoint_event(self, event_type, filter=None):
         """Listener for Endpoint related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, Endpoint, 'Endpoint')
+        return self.on_object_event(event_type, Endpoint, 'Endpoint', filter=filter)
 
-    def on_device_state_event(self, event_type):
+    def on_device_state_event(self, event_type, filter=None):
         """Listener for DeviceState related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, DeviceState, 'DeviceState')
+        return self.on_object_event(event_type, DeviceState, 'DeviceState', filter=filter)
 
-    def on_sound_event(self, event_type):
+    def on_sound_event(self, event_type, filter=None):
         """Listener for Sound related events
 
         :param event_type: Name of the event to register for.
         """
-        return self.on_object_event(event_type, Sound, 'Sound')
+        return self.on_object_event(event_type, Sound, 'Sound', filter=filter)
 
 class EventMessage:
     """This class encapsulates an event.
     All elements with known types are converted to objects,
     if a class for them is registered.
+
+    Note::
+        The "Dial" event is converted to "DialStart", "DialState" or
+        "DialResult" depending on whether ``dialstatus`` is empty or not.
     """
     def __init__(self, client, msg):
         self._client = client
@@ -437,7 +471,7 @@ class EventMessage:
                 continue
             t = m['type']
             is_list = False
-            m = re.match('''List\[(.*)\]''', t)
+            m = re.match(r'''List\[(.*)\]''', t)
             if m:
                 t = m.group(1)
                 is_list = True
@@ -450,6 +484,14 @@ class EventMessage:
                 v = factory(client, json=v)
 
             setattr(self, k, v)
+
+        if self.type == "Dial":
+            if self.dialstatus == "":
+                self.type = "DialStart"
+            elif self.dialstatus in {"PROGRESS"}:
+                self.type = "DialState"
+            else:
+                self.type = "DialResult"
 
     def __repr__(self):
         return "<%s %s>" % (self.__class__.__name__, self.type)
@@ -467,23 +509,4 @@ class EventMessage:
     def _get(self, k, v=None):
         return self._orig_msg.get(k, v)
 
-
-class ClientReader:
-    link = None
-    def __init__(self, client):
-        self.client = client
-        self.q = anyio.create_queue(999)
-
-    async def __anext__(self):
-        if self.link is None:
-            self.link = self.client.on_event('*', self._queue)
-        return await self.q.get()
-
-    async def _queue(self, msg):
-        await self.q.put(msg)
-
-    async def aclose(self):
-        if self.link is not None:
-            self.link.close()
-            self.link = None
 
