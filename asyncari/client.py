@@ -151,6 +151,10 @@ class Client:
         return self.on_channel_event("StasisStart",
                 filter=lambda evt: evt.args[0] == endpoint)
 
+    @property
+    def app(self):
+        return self._app
+
     async def _run(self, evt: anyio.abc.Event = None):
         """Connect to the WebSocket and begin processing messages.
 
