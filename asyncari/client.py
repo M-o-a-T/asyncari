@@ -146,7 +146,9 @@ class Client:
 
     def on_start_of(self, endpoint):
         """
-        Iterator for StasisStart on a particular sub-endpoint
+        Iterator for StasisStart on a particular sub-endpoint.
+
+        Returns an async iterator that yields (channel,start_event) tuples.
         """
         return self.on_channel_event("StasisStart",
                 filter=lambda evt: evt.args[0] == endpoint)
