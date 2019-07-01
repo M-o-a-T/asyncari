@@ -598,6 +598,10 @@ class ChannelState(_ThingEvtHandler):
 			res.append(("cause",self.last_cause))
 		return res
 
+	async def on_DialResult(self, evt):
+		if evt.dialstatus != "ANSWER":
+			raise DialFailed(evt.dialstatus, self.last_cause)
+
 	async def on_ChannelHangupRequest(self, evt):
 		"""kills the channel"""
 		try:
