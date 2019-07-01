@@ -467,7 +467,7 @@ class EventMessage:
                 continue
             t = m['type']
             is_list = False
-            m = re.match('''List\[(.*)\]''', t)
+            m = re.match(r'''List\[(.*)\]''', t)
             if m:
                 t = m.group(1)
                 is_list = True
