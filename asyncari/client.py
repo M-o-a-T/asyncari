@@ -488,7 +488,7 @@ class EventMessage:
         if self.type == "Dial":
             if self.dialstatus == "":
                 self.type = "DialStart"
-            elif self.dialstatus in {"PROGRESS"}:
+            elif self.dialstatus in {"PROGRESS", "RINGING"}:
                 self.type = "DialState"
             else:
                 self.type = "DialResult"
