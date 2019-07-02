@@ -708,7 +708,7 @@ class BridgeState(_ThingEvtHandler):
 			await s.start_task()
 			return s
 
-	async def calling(self, State=None, timeout=None, **kw):
+	def calling(self, State=None, timeout=None, **kw):
 		"""
 		Context manager for an outgoing call.
 
@@ -717,8 +717,8 @@ class BridgeState(_ThingEvtHandler):
 
 		Usage::
 
-			with bridge.calling(endpoint="SIP/foo/0123456789", timeout=60) as channel:
-				channel.play(media='sound:hello-world')
+			async with bridge.calling(endpoint="SIP/foo/0123456789", timeout=60) as channel:
+				await channel.play(media='sound:hello-world')
 
 		The timeout only applies to the call setup.
 
