@@ -366,9 +366,12 @@ class BaseEvtHandler:
 
 	@property
 	def ref(self):
-		if self._src is None:
+		s = self
+		while s._src is None and getattr(s, '_prev', None) is not None:
+			s = s._prev
+		if s._src is None:
 			return None
-		return getattr(self, self._src)
+		return getattr(s, s._src)
 
 	@property
 	def ref_id(self):
