@@ -8,6 +8,7 @@
 # Copyright (c) 2013, Digium, Inc.
 #
 import asyncari
+from asyncari.util import mayNotExist
 import anyio
 import logging
 
@@ -24,8 +25,6 @@ ast_app = os.getenv("AST_APP", 'hello')
 ast_outgoing = os.getenv("AST_OUTGOING", 'SIP/blink')
 
 client = None
-
-NOT_FOUND = 404
 
 holding_bridge = None
 async def setup():
@@ -48,12 +47,8 @@ async def safe_hangup(channel):
 
     :param channel: Channel to hangup.
     """
-    try:
+    with mayNotExist:
         await channel.hangup()
-    except AsksException as e:
-        # Ignore 404's, since channels can go away before we get to them
-        if e.status_code != NOT_FOUND:
-            raise
 
 
 def on_start(objs, event, n):

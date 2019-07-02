@@ -30,7 +30,6 @@ from asks.errors import BadStatus
 log = logging.getLogger(__name__)
 
 NO_CONTENT = 204
-NOT_FOUND = 404
 
 class StateError(RuntimeError):
     """The expected or waited-for state didn't occur"""
@@ -416,11 +415,8 @@ class Channel(BaseObject):
         """
         try:
             if self._do_hangup is not False:
-                await self.hangup(reason=reason)
-        except BadStatus as e:
-            # Ignore 404's, since channels can go away before we get to them
-            if e.status_code != NOT_FOUND:
-                raise
+                with mayNotExist:
+                    await self.hangup(reason=reason)
         finally:
             self.state = "Gone"
             await self._changed.set()

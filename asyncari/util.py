@@ -14,8 +14,11 @@ from .state import SyncEvtHandler, AsyncEvtHandler, DTMFHandler
 __all__ = [
         "NumberError", "NumberLengthError", "NumberTooShortError", "NumberTooLongError", "NumberTimeoutError", "TotalTimeoutError", "DigitTimeoutError", 
         "SyncReadNumber", "AsyncReadNumber",
-        "SyncPlay",
+        "SyncPlay", "mayNotExist",
         ]
+
+def singleton(cls):
+    return cls()
 
 class NumberError(RuntimeError):
     """Base class for things that can go wrong entering a number.
@@ -176,4 +179,19 @@ class SyncPlay(SyncEvtHandler):
 
 	async def on_play_end(self, evt):
 		await self.done()
+
+
+from asks.errors import BadStatus
+NOT_FOUND = 404
+
+@singleton
+class mayNotExist:
+    def __enter__(self):
+        return self
+    def __exit__(self, c,e,t):
+        if e is not None:
+            if isinstance(e, BadStatus) and e.status_code == NOT_FOUND:
+                return True
+
+
 
