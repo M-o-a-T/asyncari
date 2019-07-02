@@ -168,10 +168,7 @@ class SyncPlay(SyncEvtHandler):
 	def __init__(self, prev, media):
 		super().__init__(prev)
 		self.media = media
-		cb = getattr(prev, 'bridge', None)
-		if cb is None:
-			cb = prev.channel
-		self.chan_or_bridge = cb
+		self.chan_or_bridge = self.ref
 	
 	async def on_start(self):
 		p = await self.chan_or_bridge.play(media=self.media)
