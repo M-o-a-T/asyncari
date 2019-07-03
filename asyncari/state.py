@@ -19,15 +19,9 @@ import logging
 log = logging.getLogger(__name__)
 
 __all__ = ["ToplevelChannelState", "ChannelState", "BridgeState", "HangupBridgeState", "OutgoingChannelState",
-<<<<<<< master
-           "DTMFHandler", "EvtHandler", "as_task"]
-||||||| voice
-           "DTMFHandler", "EvtHandler", "as_task", "as_handler_task"]
-=======
            "DTMFHandler", "EvtHandler", "as_task", "as_handler_task",
            "SyncReadNumber", "AsyncReadNumber", "SyncPlay",
           ]
->>>>>>> local
 
 _StartEvt = "_StartEvent"
 
