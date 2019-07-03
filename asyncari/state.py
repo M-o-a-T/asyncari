@@ -214,10 +214,11 @@ class BaseEvtHandler:
 
 
 	async def __aexit__(self, *tb):
-		await self.done()
+		async with anyio.fail_after(2, shield=True):
+			await self.done()
 
-		if self._done is not None:
-			await self._done.wait()
+			if self._done is not None:
+				await self._done.wait()
 
 
 	async def done_sub(self):
@@ -655,8 +656,9 @@ class BridgeState(_ThingEvtHandler):
 		return await super().__aenter__()
 
 	async def __aexit__(self, *tb):
-		await self.teardown()
-		return super().__aexit__(*tb)
+		async with anyio.fail_after(2, shield=True):
+			await self.teardown()
+			return await super().__aexit__(*tb)
 
 	async def add(self, channel):
 		"""Add a new channel to this bridge."""
@@ -940,8 +942,9 @@ class CallManager:
 				raise
 
 	async def __aexit__(self, *exc):
-		if self.state is None:
-			await self.state.hang_up()
-		else:
-			await self.channel.hang_up()
+		async with anyio.fail_after(2, shield=True):
+			if self.state is None:
+				await self.state.hang_up()
+			else:
+				await self.channel.hang_up()
 
