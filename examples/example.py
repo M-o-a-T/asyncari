@@ -32,7 +32,7 @@ class State(ToplevelChannelState, DTMFHandler):
     async def on_start(self):
         await self.channel.play(media='sound:hello-world')
 
-    async def on_dtmf_Hash(self, evt):
+    async def on_dtmf_Star(self, evt):
         self.do_hang = True
         await self.channel.play(media='sound:vm-goodbye')
 
