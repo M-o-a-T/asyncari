@@ -19,7 +19,15 @@ import logging
 log = logging.getLogger(__name__)
 
 __all__ = ["ToplevelChannelState", "ChannelState", "BridgeState", "HangupBridgeState", "OutgoingChannelState",
+<<<<<<< master
+           "DTMFHandler", "EvtHandler", "as_task"]
+||||||| voice
            "DTMFHandler", "EvtHandler", "as_task", "as_handler_task"]
+=======
+           "DTMFHandler", "EvtHandler", "as_task", "as_handler_task",
+           "SyncReadNumber", "AsyncReadNumber", "SyncPlay",
+          ]
+>>>>>>> local
 
 _StartEvt = "_StartEvent"
 
@@ -69,15 +77,6 @@ def as_task(proc):
 	@functools.wraps(proc)
 	async def worker(self, *a, **kw):
 		await self.taskgroup.spawn(functools.partial(proc, self, *a, **kw), name=proc.__name__)
-	assert inspect.iscoroutinefunction(proc)
-	return worker
-
-def as_handler_task(proc):
-	@functools.wraps(proc)
-	async def worker(self, *a, **kw):
-		evt = anyio.create_event()
-		await self.taskgroup.spawn(functools.partial(proc, self, *a, done_evt=evt, **kw), name=proc.__name__)
-		await evt.wait()
 	assert inspect.iscoroutinefunction(proc)
 	return worker
 
@@ -152,10 +151,10 @@ class BaseEvtHandler:
 		self.client = client
 		self._base_tg = taskgroup or client.taskgroup
 
-	async def start_task(self, evt=None):
+	async def start_task(self):
 		"""This is a shortcut for running this object's async context
 		manager / event loop in a separate task."""
-		await self._base_tg.spawn(functools.partial(self._run_ctx, evt=evt), name="start_task "+self.ref_id)
+		await self._base_tg.spawn(self._run_ctx, name="start_task "+self.ref_id)
 
 	async def _run_ctx(self, evt: anyio.abc.Event = None):
 		assert self._done is None
@@ -439,16 +438,6 @@ class _EvtHandler(BaseEvtHandler):
 		self._prev = prev
 		super().__init__(prev.client, taskgroup=prev.taskgroup)
 
-#	async def run(self, evt: anyio.abc.Event = None):
-#		"""
-#		Shuffle queued events from my parent to me before starting.
-#		"""
-#		pq = self._prev._q
-#		while pq.qsize():
-#			msg = await pq.get()
-#			await self._q.put(msg)
-#		await super().run(evt=evt)
-#
 	async def _handle_prev(self, evt):
 		await self._prev._handle_here(evt)
 		return True
@@ -499,7 +488,7 @@ class AsyncEvtHandler(_EvtHandler):
 		async def on_error(self, err):
 			raise err  # do whatever you want with the error
 
-	Alternately, use :class:`SyncEvtHandler`.
+	Alternately, use :class:`SyncEvtHandler` in a separate task.
 
 	"""
 	async def _run_with_tg(self, *, evt: anyio.abc.Event = None):
@@ -520,9 +509,7 @@ class AsyncEvtHandler(_EvtHandler):
 			await self._handle_prev(_ResultEvent(self._result))
 
 	async def _await(self):
-		evt = anyio.create_event()
-		await self.start_task(evt)
-		await evt.wait()
+		await self._start_task()
 
 
 class SyncEvtHandler(_EvtHandler):
@@ -534,35 +521,26 @@ class SyncEvtHandler(_EvtHandler):
 			pass  # do whatever it takes to handle this submenu
 			# Somewhere in there you'll call "await self.done(RESULT)"
 
-		@as_handler_task
-		async def on_digit_1(self, evt, done_evt):
+		@as_task
+		async def on_digit_1(self evt):
 			try:
-				res = await MenuOne(self, done_evt)
+				res = await MenuOne(self)
 			except Exception as err:
 				raise  # do whatever you want with the error
 			else:
 				pass  # do whatever you want with RESULT
 
-	You **must** decorate any callback that starts a sync event handler with
-	:func:`as_handler_task`. If you don't, event handling **will**
-	deadlock. You'll also get an error message that your event handler took
-	too long.
+	You **must** decorate your handler with :func:`as_task` or otherwise
+	delegate this call to another task. If you don't, event handling **will**
+	deadlock. You'll also get an error message that your event handler
+	takes too long.
 
-	The ``done_evt`` parameter is injected by ``@as_handler_task``. Its
-	purpose is to manage blocking the event handling machinery until the
-	new handler has registered itself. Otherwise, additional events that
-	arrive while the handler is set up would be processed by the parent.
-
-	Alternately, use :class:`AsyncEvtHandler` and an `on_result` handler.
+	Alternately, use :class:`AsyncEvtHandler` and `on_result`.
 	"""
-
-	def __init__(self, prev, evt=None):
-		self._sync_evt = evt
-		super().__init__(prev)
 
 	async def _await(self):
 		"""This does not use context management, because we want to get errors."""
-		await self._run_with_tg(evt=self._sync_evt)
+		await self._run_with_tg()
 
 		if isinstance(self._result, Exception):
 			raise self._result
@@ -977,4 +955,44 @@ class CallManager:
 				await self.state.hang_up()
 			else:
 				await self.channel.hang_up()
+
+
+### A couple of helper classes
+
+class SyncReadNumber(_ReadNumber,SyncEvtHandler):
+    """
+    This event handler receives and returns a sequence of digits.
+    The pound key terminates the sequence. The star key restarts.
+
+    Sync version.
+    """
+    pass
+
+class AsyncReadNumber(_ReadNumber,AsyncEvtHandler):
+    """
+    This event handler receives and returns a sequence of digits.
+    The pound key terminates the sequence. The star key restarts.
+
+    Async version.
+    """
+    pass
+
+class SyncPlay(SyncEvtHandler):
+	"""
+	This event handler plays a sound and returns when it has finished.
+
+	Sync version. There is no async version because you get an event with the result anyway.
+	"""
+	def __init__(self, prev, media):
+		super().__init__(prev)
+		self.media = media
+		self.chan_or_bridge = self.ref
+	
+	async def on_start(self):
+		p = await self.chan_or_bridge.play(media=self.media)
+		p.on_event("PlaybackFinished", self.on_play_end)
+
+	async def on_play_end(self, evt):
+		await self.done()
+
 

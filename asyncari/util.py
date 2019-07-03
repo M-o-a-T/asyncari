@@ -9,12 +9,9 @@ import math
 import inspect
 from asks.errors import BadStatus
 
-from .state import SyncEvtHandler, AsyncEvtHandler, DTMFHandler
-
 __all__ = [
         "NumberError", "NumberLengthError", "NumberTooShortError", "NumberTooLongError", "NumberTimeoutError", "TotalTimeoutError", "DigitTimeoutError", 
-        "SyncReadNumber", "AsyncReadNumber",
-        "SyncPlay", "mayNotExist",
+        "mayNotExist",
         ]
 
 def singleton(cls):
@@ -142,43 +139,6 @@ class _ReadNumber(DTMFHandler):
 
     async def set_timeout(self):
         self._digit_deadline = (await anyio.current_time()) + (self.digit_timeout if self.num else self.first_digit_timeout)
-
-
-class SyncReadNumber(_ReadNumber,SyncEvtHandler):
-    """
-    This event handler receives and returns a sequence of digits.
-    The pound key terminates the sequence. The star key restarts.
-
-    Sync version.
-    """
-    pass
-
-class AsyncReadNumber(_ReadNumber,AsyncEvtHandler):
-    """
-    This event handler receives and returns a sequence of digits.
-    The pound key terminates the sequence. The star key restarts.
-
-    Async version.
-    """
-    pass
-
-class SyncPlay(SyncEvtHandler):
-	"""
-	This event handler plays a sound and returns when it has finished.
-
-	Sync version. There is no async version because you get an event with the result anyway.
-	"""
-	def __init__(self, prev, media):
-		super().__init__(prev)
-		self.media = media
-		self.chan_or_bridge = self.ref
-	
-	async def on_start(self):
-		p = await self.chan_or_bridge.play(media=self.media)
-		p.on_event("PlaybackFinished", self.on_play_end)
-
-	async def on_play_end(self, evt):
-		await self.done()
 
 
 from asks.errors import BadStatus
