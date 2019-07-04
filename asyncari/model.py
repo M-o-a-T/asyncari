@@ -581,12 +581,10 @@ class Bridge(BaseObject):
             log.warn("Event not recognized: %s for %s", msg, self)
         await super().do_event(msg)
 
-        for ch in self.channels:
-            if ch.id not in msg._orig_msg['bridge']['channels']:
+        if hasattr(msg,'bridge'):
+            for ch in self.channels - msg.bridge.channels:
                 log.warn("%s: %s not listed",self,ch)
-        for ch in msg._orig_msg['bridge']['channels']:
-            ch = Channel(self.client, id=ch)
-            if ch not in self.channels:
+            for ch in msg.bridge.channels - self.channels:
                 log.warn("%s: %s not known",self,ch)
 
     async def __anext__(self):
