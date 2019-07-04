@@ -26,7 +26,7 @@ from weakref import WeakValueDictionary
 from contextlib import suppress
 import anyio
 from asks.errors import BadStatus
-from .util import mayNotExit
+from .util import mayNotExist
 
 log = logging.getLogger(__name__)
 
