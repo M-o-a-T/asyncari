@@ -1090,10 +1090,13 @@ class SyncPlay(SyncEvtHandler):
 		self.media = media
 	
 	async def on_start(self):
+		self.cb = self.ref.on_event("PlaybackFinished", self.on_play_end)
 		p = await self.ref.play(media=self.media)
-		p.on_event("PlaybackFinished", self.on_play_end)
+		await p.wait_playing()
 
 	async def on_play_end(self, evt):
-		await self.done()
+		if evt.playback.media_uri == media:
+			self.cb.cancel()
+			await self.done()
 
 
