@@ -607,23 +607,20 @@ class Playback(BaseObject):
     """
     id_generator = DefaultObjectIdGenerator('playbackId')
     api = "playbacks"
-    channel = None
-    bridge = None
+    ref = None
 
     def _init(self):
         self._is_playing = anyio.create_event()
         self._is_done = anyio.create_event()
         target = self.json.get('target_uri', '')
         if target.startswith('channel:'):
-            self.channel = Channel(self.client, id=target[8:])
+            self.ref = Channel(self.client, id=target[8:])
         elif target.startswith('bridge:'):
-            self.bridge = Bridge(self.client, id=target[7:])
+            self.ref = Bridge(self.client, id=target[7:])
 
     async def do_event(self, msg):
-        if self.channel is not None:
-            await self.channel.do_event(msg)
-        if self.bridge is not None:
-            await self.bridge.do_event(msg)
+        if self.ref is not None:
+            await self.ref.do_event(msg)
         if msg.type == "PlaybackStarted":
             await self._is_playing.set()
         elif msg.type == "PlaybackFinished":
