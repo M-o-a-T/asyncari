@@ -649,10 +649,37 @@ class LiveRecording(BaseObject):
     """
     id_generator = DefaultObjectIdGenerator('recordingName', id_field='name')
     api = "recordings"
+    ref = None
+
+    def _init(self):
+        self._is_recording = anyio.create_event()
+        self._is_done = anyio.create_event()
+        target = self.json.get('target_uri', '')
+        if target.startswith('channel:'):
+            self.ref = Channel(self.client, id=target[8:])
+        elif target.startswith('bridge:'):
+            self.ref = Bridge(self.client, id=target[7:])
 
     async def do_event(self, msg):
-        log.warn("Event not recognized: %s for %s", msg, self)
+        if self.ref is not None:
+            await self.ref.do_event(msg)
+        if msg.type == "RecordingStarted":
+            await self._is_recording.set()
+        elif msg.type == "RecordingFinished":
+            await self._is_recording.set()
+            await self._is_done.set()
+        else:
+            log.warn("Event not recognized: %s for %s", msg, self)
         await super().do_event(msg)
+
+    async def wait_recording(self):
+        """Wait until the sound has started recording"""
+        await self._is_recording.wait()
+
+    async def wait_done(self):
+        """Wait until the sound has stopped recording"""
+        await self._is_done.wait()
+
 
 
 class StoredRecording(BaseObject):

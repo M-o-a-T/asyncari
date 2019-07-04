@@ -1095,8 +1095,8 @@ class SyncPlay(SyncEvtHandler):
 		await p.wait_playing()
 
 	async def on_play_end(self, evt):
-		if evt.playback.media_uri == media:
-			self.cb.cancel()
+		if evt.playback.media_uri == self.media:
+			self.cb.close()
 			await self.done()
 
 
