@@ -642,21 +642,25 @@ class BridgeState(_ThingEvtHandler):
 		super().__init__(bridge.client, **kw)
 
 	@classmethod
-	def new(cls, client, type="mixing", **kw):
+	def new(cls, client, *a, type="mixing", **kw):
 		"""
 		Create a new bridge with this state machine.
 
 		Always use as `async with …`.
+
+		Arguments other than "client" and "type" are passed to the constructor.
 		"""
 		s = object.__new__(cls)
 		s.client = client
 		s._bridge_args = dict(type=type, bridgeId=client.generate_id("B"))
+		s._bridge_kw = kw
 		return s
 
 	async def __aenter__(self):
 		if self.bridge is None:
-			self.__init__(await self.client.bridges.create(**self._bridge_args))
+			self.__init__(await self.client.bridges.create(**self._bridge_args), **self._bridge_kw)
 			del self._bridge_args
+			del self._bridge_kw
 		return await super().__aenter__()
 
 	async def __aexit__(self, *tb):
