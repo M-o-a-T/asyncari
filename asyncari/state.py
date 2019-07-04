@@ -1084,10 +1084,9 @@ class SyncPlay(SyncEvtHandler):
 	def __init__(self, prev, media):
 		super().__init__(prev)
 		self.media = media
-		self.chan_or_bridge = self.ref
 	
 	async def on_start(self):
-		p = await self.chan_or_bridge.play(media=self.media)
+		p = await self.ref.play(media=self.media)
 		p.on_event("PlaybackFinished", self.on_play_end)
 
 	async def on_play_end(self, evt):
