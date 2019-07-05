@@ -104,6 +104,10 @@ class BaseEvtHandler:
     Do not instantiate a ``BaseEvtHandler`` directly. Always use or
     subclass :class:`EvtHandler`, :class:`ChannelState` or
     :class:`BridgeState`.
+
+    You can pass in an `anyio.abc.Event` as the ``ready`` argument to the
+    class. It will be set once event processing is set up and the
+    ``on_start`` handler has finished.
     """
     # Internally, start_task starts a separate task that enters this state machine's context.
     # Entering the context starts _run_with_taskgroup, which creates the
@@ -143,9 +147,10 @@ class BaseEvtHandler:
     # Number of tasks working the queue
     _n_proc = 0
 
-    def __init__(self, client, taskgroup=None):
+    def __init__(self, client, taskgroup=None, ready: anyio.abc.Event=None):
         self.client = client
         self._base_tg = taskgroup or client.taskgroup
+        self._ready = ready
 
     async def start_task(self):
         """This is a shortcut for running this object's async context
@@ -297,6 +302,8 @@ class BaseEvtHandler:
         if evt is not None:
             await evt.set()
         await self.on_start()
+        if self._ready is not None:
+            await self._ready.set()
 
         self._proc_lock = anyio.create_lock()
         while True:
@@ -430,9 +437,9 @@ class _EvtHandler(BaseEvtHandler):
     # Our main loop's result
     _result = None
 
-    def __init__(self, prev):
+    def __init__(self, prev, **kw):
         self._prev = prev
-        super().__init__(prev.client, taskgroup=prev.taskgroup)
+        super().__init__(prev.client, taskgroup=prev.taskgroup, **kw)
 
     async def _handle_prev(self, evt):
         await self._prev._handle_here(evt)
@@ -1041,6 +1048,7 @@ class _ReadNumber(DTMFHandler):
         await self._total_timer.cancel()
 
     async def on_start(self):
+        await super().on_start()
         self.num = ""
         await self.taskgroup.spawn(self._digit_timer_)
         await self.taskgroup.spawn(self._total_timer_)
@@ -1090,6 +1098,7 @@ class SyncPlay(SyncEvtHandler):
         self.media = media
     
     async def on_start(self):
+        await super().on_start()
         self.cb = self.ref.on_event("PlaybackFinished", self.on_play_end)
         p = await self.ref.play(media=self.media)
         await p.wait_playing()
