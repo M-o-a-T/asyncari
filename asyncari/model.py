@@ -378,6 +378,7 @@ class Channel(BaseObject):
     def _init(self):
         super()._init()
         self.playbacks = set()
+        self.recordings = set()
         self.vars = {}
 
     async def set_reason(self, reason):
@@ -461,6 +462,15 @@ class Channel(BaseObject):
                 self.playbacks.remove(msg.playback)
             except KeyError:
                 log.warning("%s not in %s", msg.playback, self)
+
+        elif msg.type == "RecordingStarted":
+            assert msg.recording not in self.Recordings
+            self.Recordings.add(msg.recording)
+        elif msg.type == "RecordingFinished":
+            try:
+                self.Recordings.remove(msg.recording)
+            except KeyError:
+                log.warning("%s not in %s", msg.recording, self)
 
         elif msg.type == "ChannelHangupRequest":
             pass
@@ -607,23 +617,20 @@ class Playback(BaseObject):
     """
     id_generator = DefaultObjectIdGenerator('playbackId')
     api = "playbacks"
-    channel = None
-    bridge = None
+    ref = None
 
     def _init(self):
         self._is_playing = anyio.create_event()
         self._is_done = anyio.create_event()
         target = self.json.get('target_uri', '')
         if target.startswith('channel:'):
-            self.channel = Channel(self.client, id=target[8:])
+            self.ref = Channel(self.client, id=target[8:])
         elif target.startswith('bridge:'):
-            self.bridge = Bridge(self.client, id=target[7:])
+            self.ref = Bridge(self.client, id=target[7:])
 
     async def do_event(self, msg):
-        if self.channel is not None:
-            await self.channel.do_event(msg)
-        if self.bridge is not None:
-            await self.bridge.do_event(msg)
+        if self.ref is not None:
+            await self.ref.do_event(msg)
         if msg.type == "PlaybackStarted":
             await self._is_playing.set()
         elif msg.type == "PlaybackFinished":
@@ -652,10 +659,37 @@ class LiveRecording(BaseObject):
     """
     id_generator = DefaultObjectIdGenerator('recordingName', id_field='name')
     api = "recordings"
+    ref = None
+
+    def _init(self):
+        self._is_recording = anyio.create_event()
+        self._is_done = anyio.create_event()
+        target = self.json.get('target_uri', '')
+        if target.startswith('channel:'):
+            self.ref = Channel(self.client, id=target[8:])
+        elif target.startswith('bridge:'):
+            self.ref = Bridge(self.client, id=target[7:])
 
     async def do_event(self, msg):
-        log.warn("Event not recognized: %s for %s", msg, self)
+        if self.ref is not None:
+            await self.ref.do_event(msg)
+        if msg.type == "RecordingStarted":
+            await self._is_recording.set()
+        elif msg.type == "RecordingFinished":
+            await self._is_recording.set()
+            await self._is_done.set()
+        else:
+            log.warn("Event not recognized: %s for %s", msg, self)
         await super().do_event(msg)
+
+    async def wait_recording(self):
+        """Wait until the sound has started recording"""
+        await self._is_recording.wait()
+
+    async def wait_done(self):
+        """Wait until the sound has stopped recording"""
+        await self._is_done.wait()
+
 
 
 class StoredRecording(BaseObject):
