@@ -378,6 +378,7 @@ class Channel(BaseObject):
     def _init(self):
         super()._init()
         self.playbacks = set()
+        self.recordings = set()
         self.vars = {}
 
     async def set_reason(self, reason):
@@ -461,6 +462,15 @@ class Channel(BaseObject):
                 self.playbacks.remove(msg.playback)
             except KeyError:
                 log.warning("%s not in %s", msg.playback, self)
+
+        elif msg.type == "RecordingStarted":
+            assert msg.recording not in self.Recordings
+            self.Recordings.add(msg.recording)
+        elif msg.type == "RecordingFinished":
+            try:
+                self.Recordings.remove(msg.recording)
+            except KeyError:
+                log.warning("%s not in %s", msg.recording, self)
 
         elif msg.type == "ChannelHangupRequest":
             pass
