@@ -610,7 +610,10 @@ class ChannelState(_ThingEvtHandler):
 
     def _repr(self):
         res=super()._repr()
-        res.append(("ch_state",self.channel.state))
+        try:
+            res.append(("ch_state",self.channel.state))
+        except AttributeError:
+            pass
         if self.last_cause is not None:
             res.append(("cause",self.last_cause))
         return res
