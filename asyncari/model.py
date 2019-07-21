@@ -437,6 +437,16 @@ class Channel(BaseObject):
 
         self._do_hangup = False
 
+    async def safe_hangup(self):
+        """Hangup a channel, ignoring 404 errors.
+
+        :param channel: Channel to hangup.
+        """
+        if not self.json:
+            self.json={"id": self.id}
+        with mayNotExist:
+            await self.hangup()
+
     async def do_event(self, msg):
         if msg.type == "StasisStart":
             type(self).active.add(self)
