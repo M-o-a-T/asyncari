@@ -147,6 +147,9 @@ class BaseEvtHandler:
     # Number of tasks working the queue
     _n_proc = 0
 
+    # scope of runner wrapper
+    _run_with_scope = None
+
     def __init__(self, client, taskgroup=None, ready: anyio.abc.Event=None):
         self.client = client
         self._base_tg = taskgroup or client.taskgroup
@@ -165,12 +168,48 @@ class BaseEvtHandler:
                 await evt.set()
             await self._done.wait()
 
-    async def __aenter__(self):
+    @property
+    @asynccontextmanager
+    async def task(self):
         """
         Context manager to run this state machine's "run" method / main loop.
         """
-        await self._base_tg.spawn(self._run_with_tg, name="run "+repr(self))
-        return self
+        if self._run_with_scope is not None:
+            raise RuntimeError("Task already running")
+        async with anyio.open_cancel_scope() as sc:
+            try:
+                if self._done is None:
+                    self._done = anyio.create_event()
+                assert self._q is None, self._q
+                self._q = anyio.create_queue(20)
+                self._run_with_exc = None
+
+                self._run_with_scope = sc
+                await self._base_tg.spawn(self._run_with_tg, name="run "+repr(self))
+                yield self
+
+            except BaseException as ex:
+                exc,self._run_with_exc = self._run_with_exc,None
+                if exc is not None:
+                    raise exc
+                raise
+
+            else:
+                exc,self._run_with_exc = self._run_with_exc,None
+                if exc is not None:
+                    raise exc
+
+            finally:
+                self._run_with_scope = None
+                if self._tg is not None:
+                    await self._tg.cancel_scope.cancel()
+
+                async with anyio.fail_after(2, shield=True):
+                    await self.done()
+
+                    if self._done is not None:
+                        await self._done.wait()
+
 
     @property
     def taskgroup(self):
@@ -182,18 +221,17 @@ class BaseEvtHandler:
 
     async def _run_with_tg(self, *, evt: anyio.abc.Event = None):
         try:
-            if self._done is None:
-                self._done = anyio.create_event()
-            assert self._q is None, self._q
-            self._q = anyio.create_queue(20)
-
             async with anyio.create_task_group() as tg:
                 self._tg = tg
                 await self.run(evt=evt)
+        except Exception as exc:
+            self._run_with_exc = exc
+            await self._run_with_scope.cancel()
         finally:
             self._tg = None
-            await self._done.set()
-            self._done = None
+            if self._done is not None:
+                await self._done.set()
+                self._done = None
             if self._q is not None:
                 await self._q.put(None)
                 self._q = None
@@ -220,14 +258,6 @@ class BaseEvtHandler:
         log.debug("TeardownRun %r < %r", self, getattr(self,'_prev',None))
         if self._tg is not None:
             await self._tg.cancel_scope.cancel()
-
-
-    async def __aexit__(self, *tb):
-        async with anyio.fail_after(2, shield=True):
-            await self.done()
-
-            if self._done is not None:
-                await self._done.wait()
 
 
     async def done_sub(self):
