@@ -97,7 +97,7 @@ class Repository(object):
                 try:
                     res = await oper(**kwargs)
                 except BadStatus as exc:
-                    d = getattr(exc,'data', None}
+                    d = getattr(exc,'data', None)
                     if d is not None:
                         d = d.get('message',None)
                     raise OperationError(d) from exc
