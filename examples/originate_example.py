@@ -35,7 +35,7 @@ class CallState(ToplevelChannelState, DTMFHandler):
 class CallerState(ToplevelChannelState, DTMFHandler):
     @as_task
     async def on_start(self):
-        async with HangupBridgeState.new(self.client) as br:
+        async with HangupBridgeState.new(self.client).task as br:
             await br.add(self.channel)
             await br.dial(endpoint=ast_outgoing, State=CallState)
             await self.channel.wait_bridged()
