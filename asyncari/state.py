@@ -169,9 +169,13 @@ class BaseEvtHandler:
             await self._done.wait()
 
     async def _task_setup(self):
-        pass
+        assert self._q is None, self._q
+        self._q = anyio.create_queue(20)
+
     async def _task_teardown(self):
-        pass
+        if self._q is not None:
+            await self._q.put(None)
+            self._q = None
 
     @property
     @asynccontextmanager
@@ -185,12 +189,9 @@ class BaseEvtHandler:
             try:
                 if self._done is None:
                     self._done = anyio.create_event()
-                assert self._q is None, self._q
-                self._q = anyio.create_queue(20)
                 self._run_with_exc = None
 
                 self._run_with_scope = sc
-                await self._task_setup()
                 await self._base_tg.spawn(self._run_with_tg, name="run "+repr(self))
                 yield self
 
@@ -211,7 +212,6 @@ class BaseEvtHandler:
                     await self._tg.cancel_scope.cancel()
 
                 async with anyio.move_on_after(2, shield=True):
-                    await self._task_teardown()
                     await self.done()
 
                     if self._done is not None:
@@ -229,30 +229,18 @@ class BaseEvtHandler:
         try:
             async with anyio.create_task_group() as tg:
                 self._tg = tg
+                await self._task_setup()
                 await self.run(evt=evt)
         except Exception as exc:
             self._run_with_exc = exc
             await self._run_with_scope.cancel()
         finally:
             self._tg = None
+            await self._task_teardown()
             if self._done is not None:
                 await self._done.set()
                 self._done = None
-            if self._q is not None:
-                await self._q.put(None)
-                self._q = None
 
-            # Any unprocessed events get relegated to the parent
-            while True:
-                try:
-                    async with anyio.fail_after(0.001):
-                        if self._q is None:
-                            break
-                        evt = self._q.get()
-                except TimeoutError:
-                    break
-                else:
-                    await self._handle_prev(evt)
 
 
     async def done(self):
@@ -326,8 +314,6 @@ class BaseEvtHandler:
             async def run(self):
                 async with anyio.fail_after(30):
                     await super().run()
-
-        You must call :meth:`_handle_prev` on events you don't recognize.
 
         This method creates a runner task that do the actual event processing.
         A new runner is started if processing an event takes longer than 0.1 seconds.
@@ -713,6 +699,19 @@ class BridgeState(_ThingEvtHandler):
         async with anyio.fail_after(2, shield=True):
             await self.teardown()
             return await super()._task_teardown(*tb)
+
+            # Any unprocessed events get relegated to the parent
+            while True:
+                try:
+                    async with anyio.fail_after(0.001):
+                        if self._q is None:
+                            break
+                        if self._q.empty():
+                            break
+                        evt = self._q.get()
+                except TimeoutError:
+                    break
+                await self._handle_prev(evt)
 
     async def add(self, channel):
         """Add a new channel to this bridge."""
