@@ -163,10 +163,15 @@ class BaseEvtHandler:
     async def _run_ctx(self, evt: anyio.abc.Event = None):
         assert self._done is None
         self._done = anyio.create_event()
-        async with self:
+        async with self.task:
             if evt is not None:
                 await evt.set()
             await self._done.wait()
+
+    async def _task_setup(self):
+        pass
+    async def _task_teardown(self):
+        pass
 
     @property
     @asynccontextmanager
@@ -185,6 +190,7 @@ class BaseEvtHandler:
                 self._run_with_exc = None
 
                 self._run_with_scope = sc
+                await self._task_setup()
                 await self._base_tg.spawn(self._run_with_tg, name="run "+repr(self))
                 yield self
 
@@ -204,12 +210,12 @@ class BaseEvtHandler:
                 if self._tg is not None:
                     await self._tg.cancel_scope.cancel()
 
-                async with anyio.fail_after(2, shield=True):
+                async with anyio.move_on_after(2, shield=True):
+                    await self._task_teardown()
                     await self.done()
 
                     if self._done is not None:
                         await self._done.wait()
-
 
     @property
     def taskgroup(self):
@@ -696,17 +702,17 @@ class BridgeState(_ThingEvtHandler):
         s._bridge_kw = kw
         return s
 
-    async def __aenter__(self):
+    async def _task_setup(self):
         if self.bridge is None:
             self.__init__(await self.client.bridges.create(**self._bridge_args), **self._bridge_kw)
             del self._bridge_args
             del self._bridge_kw
-        return await super().__aenter__()
+        return await super()._task_setup()
 
-    async def __aexit__(self, *tb):
+    async def _task_teardown(self, *tb):
         async with anyio.fail_after(2, shield=True):
             await self.teardown()
-            return await super().__aexit__(*tb)
+            return await super()._task_teardown(*tb)
 
     async def add(self, channel):
         """Add a new channel to this bridge."""
@@ -904,6 +910,8 @@ class BridgeState(_ThingEvtHandler):
         and you still need to clean up bridges that are no longer needed.
 
         """
+        if self.bridge is None:
+            return
         async with anyio.move_on_after(2, shield=True) as s:
             log.info("TEARDOWN %s %s",self,self.bridge.channels)
             for ch in list(self.bridge.channels)+list(self.calls):
