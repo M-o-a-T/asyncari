@@ -477,11 +477,11 @@ class Channel(BaseObject):
                 log.warning("%s not in %s", msg.playback, self)
 
         elif msg.type == "RecordingStarted":
-            assert msg.recording not in self.Recordings
-            self.Recordings.add(msg.recording)
+            assert msg.recording not in self.recordings
+            self.recordings.add(msg.recording)
         elif msg.type == "RecordingFinished":
             try:
-                self.Recordings.remove(msg.recording)
+                self.recordings.remove(msg.recording)
             except KeyError:
                 log.warning("%s not in %s", msg.recording, self)
 
