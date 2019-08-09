@@ -17,6 +17,7 @@ Depends: ${misc:Depends}, ${python3:Depends},
   python3-anyio (>= 1.0.0),
   python3-asyncswagger11,
   python3-attr (>= 18),
+  python3-asks (>= 2.2),
   python3-asyncwebsockets,
 Description: An AnyIO-ified adapter for the Asterisk ARI interface
  AsyncARI implements the Asterisk Resource Interface (ARI) for use by async

@@ -22,7 +22,7 @@ setup(
         "trio >= 0.11",
         "anyio >= 1.0.0",
         "asyncswagger11",
-        "asks",
+        "asks >= 2.2",
         "attrs>=18",
         "asyncwebsockets",
     ],
