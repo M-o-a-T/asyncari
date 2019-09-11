@@ -11,6 +11,8 @@ import anyio
 import inspect
 import functools
 
+from asks.errors import BadStatus
+
 from .model import ChannelExit, BridgeExit, EventTimeout, StateError
 from .util import NumberError, NumberLengthError, NumberTooShortError, NumberTooLongError, NumberTimeoutError, TotalTimeoutError, DigitTimeoutError
 
