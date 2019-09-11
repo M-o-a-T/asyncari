@@ -235,7 +235,8 @@ class BaseEvtHandler:
                 await self.run(evt=evt)
         except Exception as exc:
             self._run_with_exc = exc
-            await self._run_with_scope.cancel()
+            if self._run_with_scope is not None:
+                await self._run_with_scope.cancel()
         finally:
             self._tg = None
             await self._task_teardown()
