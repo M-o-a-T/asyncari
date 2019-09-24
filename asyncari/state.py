@@ -200,7 +200,7 @@ class BaseEvtHandler:
             except BaseException as ex:
                 exc,self._run_with_exc = self._run_with_exc,None
                 if exc is not None:
-                    raise exc
+                    raise ex from exc
                 raise
 
             else:
