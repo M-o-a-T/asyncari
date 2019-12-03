@@ -305,7 +305,7 @@ class BaseEvtHandler:
         return res
 
     async def _handle_prev(self, evt):
-        log.info("Unhandled event %s on %s", evt, self)
+        log.debug("Unhandled event %s on %s", evt, self)
         return False
 
     async def run(self, evt: anyio.abc.Event = None):

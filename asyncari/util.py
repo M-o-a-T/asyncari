@@ -47,9 +47,12 @@ class mayNotExist:
     def __enter__(self):
         return self
     def __exit__(self, c,e,t):
-        if e is not None:
-            if isinstance(e, BadStatus) and e.status_code == NOT_FOUND:
-                return True
+        if e is None:
+            return
+        if isinstance(e, BadStatus) and e.status_code == NOT_FOUND:
+            return True
+        if isinstance(e, KeyError):
+            return True
 
 
 
