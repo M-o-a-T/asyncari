@@ -165,7 +165,7 @@ class BaseEvtHandler:
     async def _run_ctx(self, evt: anyio.abc.Event = None):
         assert self._done is None
         self._done = anyio.create_event()
-        async with self._task():
+        async with self.task:
             if evt is not None:
                 await evt.set()
             await self._done.wait()
@@ -179,8 +179,9 @@ class BaseEvtHandler:
             await self._q.put(None)
             self._q = None
 
+    @property
     @asynccontextmanager
-    async def _task(self):
+    async def task(self):
         """
         Context manager to run this state machine's "run" method / main loop.
 
@@ -697,7 +698,7 @@ class BridgeState(_ThingEvtHandler):
         s._base_tg = kw.get('taskgroup', client.taskgroup)
         s._bridge_args = dict(type=type, bridgeId=client.generate_id("B"))
         s._bridge_kw = kw
-        return s._task()
+        return s.task
 
     async def _task_setup(self):
         if self.bridge is None:
