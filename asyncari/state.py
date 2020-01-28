@@ -165,7 +165,7 @@ class BaseEvtHandler:
     async def _run_ctx(self, evt: anyio.abc.Event = None):
         assert self._done is None
         self._done = anyio.create_event()
-        async with self.task:
+        async with self._task():
             if evt is not None:
                 await evt.set()
             await self._done.wait()
@@ -179,14 +179,16 @@ class BaseEvtHandler:
             await self._q.put(None)
             self._q = None
 
-    @property
     @asynccontextmanager
-    async def task(self):
+    async def _task(self):
         """
         Context manager to run this state machine's "run" method / main loop.
+
+        Called via ``class.new``.
         """
         if self._run_with_scope is not None:
             raise RuntimeError("Task already running")
+
         async with anyio.open_cancel_scope() as sc:
             try:
                 if self._done is None:
@@ -194,7 +196,9 @@ class BaseEvtHandler:
                 self._run_with_exc = None
 
                 self._run_with_scope = sc
-                await self._base_tg.spawn(self._run_with_tg, name="run "+repr(self))
+                evt = anyio.create_event()
+                await self._base_tg.spawn(self._run_with_tg, evt, name="run "+repr(self))
+                await evt.wait()
                 yield self
 
             except BaseException as ex:
@@ -227,11 +231,13 @@ class BaseEvtHandler:
         else:
             return self._tg
 
-    async def _run_with_tg(self, *, evt: anyio.abc.Event = None):
+    async def _run_with_tg(self, evt: anyio.abc.Event = None):
         try:
             async with anyio.create_task_group() as tg:
                 self._tg = tg
                 await self._task_setup()
+                if evt is not None:
+                    await evt.set()
                 await self.run(evt=evt)
         except Exception as exc:
             self._run_with_exc = exc
@@ -449,7 +455,8 @@ class BaseEvtHandler:
 
     def __await__(self):
         """Wait for the run task to terminate and return its result."""
-        yield from self._done.wait().__await__()
+        if self._done is not None:
+            yield from self._done.wait().__await__()
 
 
 class _EvtHandler(BaseEvtHandler):
@@ -687,9 +694,10 @@ class BridgeState(_ThingEvtHandler):
         """
         s = object.__new__(cls)
         s.client = client
+        s._base_tg = kw.get('taskgroup', client.taskgroup)
         s._bridge_args = dict(type=type, bridgeId=client.generate_id("B"))
         s._bridge_kw = kw
-        return s
+        return s._task()
 
     async def _task_setup(self):
         if self.bridge is None:
