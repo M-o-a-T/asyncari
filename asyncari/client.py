@@ -109,7 +109,9 @@ class Client:
 
     async def __aenter__(self):
         await self._init()
-        await self.taskgroup.spawn(self._run)
+        evt = anyio.create_event()
+        await self.taskgroup.spawn(self._run, evt)
+        await evt.wait()
         return self
 
     async def __aexit__(self, *tb):
@@ -183,7 +185,6 @@ class Client:
             ws = await self.swagger.events.eventWebsocket(app=apps)
             self.websockets.add(ws)
 
-            # For tests
             if evt is not None:
                 await evt.set()
 
