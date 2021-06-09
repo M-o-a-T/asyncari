@@ -34,6 +34,7 @@ class _EventHandler(object):
     """
 
     def __init__(self, client, event_type, mangler=None, filter=None):
+        self.send_stream, self.receive_stream = anyio.create_memory_object_stream()
         self.client = client
         self.event_type = event_type
         self.mangler = mangler
@@ -45,10 +46,9 @@ class _EventHandler(object):
     async def __call__(self, msg):
         if not self.filter(msg):
             return
-        await self.q.put(msg)
+        await self.send_stream.send(msg)
 
     def open(self):
-        self.q = anyio.create_queue(10)
         log.debug("ADD %s",self.event_type)
         self.client.event_listeners.setdefault(self.event_type, list()).append(self)
 
@@ -68,7 +68,7 @@ class _EventHandler(object):
 
     async def __anext__(self):
         while True:
-            res = await self.q.get()
+            res = await self.receive_stream.receive()
             if self.mangler:
                 res = self.mangler(res)
                 if res is None:
@@ -203,14 +203,14 @@ class Client:
         if evt is not None:
             await evt.set()
         while True:
-            msg = await recv.get()
+            msg = await recv.receive()
             if msg is False:
                 return
             assert msg is not None
 
             try:
                 async with anyio.fail_after(0.2):
-                    msg = await recv.get()
+                    msg = await recv.receive()
                     if msg is False:
                         return
                     assert msg is None
@@ -219,7 +219,7 @@ class Client:
                 t = await anyio.current_time()
                 # don't hard-fail that fast when debugging
                 async with anyio.fail_after(1 if 'pdb' not in sys.modules else 99):
-                    msg = await recv.get()
+                    msg = await recv.receive()
                     if msg is False:
                         return
                     assert msg is None
@@ -232,8 +232,11 @@ class Client:
 
         :param ws: WebSocket to drain.
         """
-        q = anyio.create_queue(0)
-        await self.taskgroup.spawn(self._check_runtime, q)
+
+
+        send_stream, receive_stream = anyio.create_memory_object_stream()
+
+        await self.taskgroup.spawn(self._check_runtime, receive_stream)
 
         async for msg in ws:
             if isinstance(msg, CloseConnection):
@@ -246,11 +249,11 @@ class Client:
                 log.error("Invalid event: %s", msg)
                 continue
             try:
-                await q.put(msg_json)
+                await send_stream.send(msg_json)
                 await self.process_ws(msg_json)
             finally:
-                await q.put(None)
-        await q.put(False)
+                await send_stream.send(None)
+        await send_stream.send(False)
 
     async def _init(self, RepositoryFactory=Repository):
         await self.swagger.init()

@@ -20,7 +20,7 @@ setup(
     ],
     install_requires=[
         "trio >= 0.11",
-        "anyio >= 1.0.0",
+        "anyio >= 3.1.0",
         "asyncswagger11",
         "asks >= 2.2",
         "attrs>=18",
