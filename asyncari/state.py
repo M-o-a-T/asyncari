@@ -6,26 +6,35 @@ called. Exiting the state passes control back to the caller. If the channel
 hangs up, a :class:`ChannelExit` exception is raised.
 """
 
-import math
-import anyio
-import inspect
 import functools
-
-from asks.errors import BadStatus
-
-from .model import ChannelExit, BridgeExit, EventTimeout, StateError
-from .util import NumberError, NumberLengthError, NumberTooShortError, NumberTooLongError, NumberTimeoutError, TotalTimeoutError, DigitTimeoutError
-
-from async_generator import asynccontextmanager
+import inspect
+import logging
+import math
 from concurrent.futures import CancelledError
 
-import logging
+import anyio
+from asks.errors import BadStatus
+from async_generator import asynccontextmanager
+
+from .model import ChannelExit, StateError
+from .util import NumberTooShortError, NumberTooLongError, NumberTimeoutError, DigitTimeoutError
+
 log = logging.getLogger(__name__)
 
-__all__ = ["ToplevelChannelState", "ChannelState", "BridgeState", "HangupBridgeState", "OutgoingChannelState",
-           "DTMFHandler", "EvtHandler", "as_task", "as_handler_task",
-           "SyncReadNumber", "AsyncReadNumber", "SyncPlay",
-          ]
+__all__ = [
+    "ToplevelChannelState",
+    "ChannelState",
+    "BridgeState",
+    "HangupBridgeState",
+    "OutgoingChannelState",
+    "DTMFHandler",
+    "EvtHandler",
+    "as_task",
+    "as_handler_task",
+    "SyncReadNumber",
+    "AsyncReadNumber",
+    "SyncPlay",
+]
 
 _StartEvt = "_StartEvent"
 
@@ -36,17 +45,20 @@ CAUSE_MAP = {
     16: "normal",
     17: "busy",
     18: "no_answer",
-    19: "no_answer", # but ringing
-    21: "busy", # rejected
+    19: "no_answer",  # but ringing
+    21: "busy",  # rejected
     27: "congestion",
     34: "congestion",
     38: "congestion",
 }
 
+
 class _ResultEvent:
     type = "_result"
-    def __init__(self,res):
+
+    def __init__(self, res):
         self.res = res
+
 
 # Time for a stupid helper
 def _count(it):
@@ -55,15 +67,19 @@ def _count(it):
         n += 1
     return n
 
+
 class _ErrorEvent:
     type = "_error"
-    def __init__(self,exc):
+
+    def __init__(self, exc):
         self.exc = exc
+
 
 class DialFailed(RuntimeError):
     """
     This exception is raised when dialling fails to establish a channel.
     """
+
     def __init__(self, status, cause_code=None):
         self.status = status
         self.cause_code = cause_code
@@ -71,12 +87,15 @@ class DialFailed(RuntimeError):
     def repr(self):
         return "<%s:%s %s>" % (self.__class__.__name__, self.status, self.cause_code)
 
+
 def as_task(proc):
     @functools.wraps(proc)
     async def worker(self, *a, **kw):
         await self.taskgroup.spawn(functools.partial(proc, self, *a, **kw), name=proc.__name__)
+
     assert inspect.iscoroutinefunction(proc)
     return worker
+
 
 class BaseEvtHandler:
     """Our generic event handler.
@@ -115,7 +134,7 @@ class BaseEvtHandler:
     # Entering the context starts _run_with_taskgroup, which creates the
     # loop's task group and then executes .run, which loops over incoming
     # events and processes them.
-    # 
+    #
     # Calling .done cancels the task group's context, thus terminates everything that's internal.
     # Awaiting the handler itself waits for the internal loop to end.
 
@@ -160,9 +179,9 @@ class BaseEvtHandler:
     async def start_task(self):
         """This is a shortcut for running this object's async context
         manager / event loop in a separate task."""
-        await self._base_tg.spawn(self._run_ctx, name="start_task "+self.ref_id)
+        await self._base_tg.spawn(self._run_ctx, name="start_task " + self.ref_id)
 
-    async def _run_ctx(self, evt: anyio.abc.Event = None):
+    async def _run_ctx(self, evt: anyio.abc.Event=None):
         assert self._done is None
         self._done = anyio.create_event()
         async with self._task():
@@ -197,18 +216,18 @@ class BaseEvtHandler:
 
                 self._run_with_scope = sc
                 evt = anyio.create_event()
-                await self._base_tg.spawn(self._run_with_tg, evt, name="run "+repr(self))
+                await self._base_tg.spawn(self._run_with_tg, evt, name="run " + repr(self))
                 await evt.wait()
                 yield self
 
             except BaseException as ex:
-                exc,self._run_with_exc = self._run_with_exc,None
+                exc, self._run_with_exc = self._run_with_exc, None
                 if exc is not None:
                     raise ex from exc
                 raise
 
             else:
-                exc,self._run_with_exc = self._run_with_exc,None
+                exc, self._run_with_exc = self._run_with_exc, None
                 if exc is not None:
                     raise exc
 
@@ -231,7 +250,7 @@ class BaseEvtHandler:
         else:
             return self._tg
 
-    async def _run_with_tg(self, evt: anyio.abc.Event = None):
+    async def _run_with_tg(self, evt: anyio.abc.Event=None):
         try:
             async with anyio.create_task_group() as tg:
                 self._tg = tg
@@ -250,18 +269,15 @@ class BaseEvtHandler:
                 await self._done.set()
                 self._done = None
 
-
-
     async def done(self):
         """Signal that this event handler has finished.
 
         This call cancels the main loop, if any, as well as the loop of any
         sub-event handlers which might be running.
         """
-        log.debug("TeardownRun %r < %r", self, getattr(self,'_prev',None))
+        log.debug("TeardownRun %r < %r", self, getattr(self, '_prev', None))
         if self._tg is not None:
             await self._tg.cancel_scope.cancel()
-
 
     async def done_sub(self):
         """Terminate my sub-handler, assuming one exists.
@@ -274,7 +290,6 @@ class BaseEvtHandler:
         await self._sub.done()
         self._sub = None
         return True
-
 
     async def handle(self, evt):
         """Dispatch a single event to this handler.
@@ -289,16 +304,14 @@ class BaseEvtHandler:
         else:
             await self._handle_here(evt)
 
-
     async def _handle_here(self, evt):
         if self._q is not None:
             await self._q.put(evt)
 
-
     async def _dispatch(self, evt):
         typ = evt.type
         try:
-            handler = getattr(self, 'on_'+typ)
+            handler = getattr(self, 'on_' + typ)
         except AttributeError:
             await self._handle_prev(evt)
             return
@@ -314,7 +327,7 @@ class BaseEvtHandler:
         log.debug("Unhandled event %s on %s", evt, self)
         return False
 
-    async def run(self, evt: anyio.abc.Event = None):
+    async def run(self, evt: anyio.abc.Event=None):
         """
         Process my events.
 
@@ -329,7 +342,7 @@ class BaseEvtHandler:
 
         Do not replace this method. Do not call it directly.
         """
-        log.debug("SetupRun %r < %r", self, getattr(self,'_prev',None))
+        log.debug("SetupRun %r < %r", self, getattr(self, '_prev', None))
         if evt is not None:
             await evt.set()
         await self.on_start()
@@ -339,16 +352,16 @@ class BaseEvtHandler:
         self._proc_lock = anyio.create_lock()
         while True:
             if self._n_proc == 0:
-                await self.taskgroup.spawn(self._process, name="Worker "+self.ref_id)
+                await self.taskgroup.spawn(self._process, name="Worker " + self.ref_id)
             self._proc_check = anyio.create_event()
             await anyio.sleep(0.1)
             await self._proc_check.wait()
 
-    async def _process(self, evt: anyio.abc.Event = None):
+    async def _process(self, evt: anyio.abc.Event=None):
         if evt is not None:
             await evt.set()
         try:
-            log.debug("StartRun %r < %r", self, getattr(self,'_prev',None))
+            log.debug("StartRun %r < %r", self, getattr(self, '_prev', None))
             while True:
                 self._n_proc += 1
                 try:
@@ -372,7 +385,7 @@ class BaseEvtHandler:
                         await self._handle_prev(evt)
 
         finally:
-            log.debug("StopRun %r < %r", self, getattr(self,'_prev',None))
+            log.debug("StopRun %r < %r", self, getattr(self, '_prev', None))
 
     async def get_event(self):
         """
@@ -404,7 +417,7 @@ class BaseEvtHandler:
         """List of attribute+value pairs to include in ``repr``."""
         res = []
         if self._src:
-            res.append((self._src, getattr(self,self._src)))
+            res.append((self._src, getattr(self, self._src)))
         return res
 
     @property
@@ -424,7 +437,9 @@ class BaseEvtHandler:
         return r.id
 
     def __repr__(self):
-        return "<%s: %s>" % (self.__class__.__name__, ','.join("%s=%s"%(a,b) for a,b in self._repr()))
+        return "<%s: %s>" % (
+            self.__class__.__name__, ','.join("%s=%s" % (a, b) for a, b in self._repr())
+        )
 
     async def on_start(self):
         """Called when the state machine starts up (initial pseudo event).
@@ -505,6 +520,7 @@ class _EvtHandler(BaseEvtHandler):
     async def _await(self):
         raise RuntimeError("Use a subclass.")
 
+
 class AsyncEvtHandler(_EvtHandler):
     """
     This event handler operates asynchronously, i.e. you start it
@@ -526,7 +542,8 @@ class AsyncEvtHandler(_EvtHandler):
     Alternately, use :class:`SyncEvtHandler` in a separate task.
 
     """
-    async def _run_with_tg(self, *, evt: anyio.abc.Event = None):
+
+    async def _run_with_tg(self, *, evt: anyio.abc.Event=None):
         try:
             await super()._run_with_tg(evt=evt)
         except anyio.get_cancelled_exc_class():
@@ -604,13 +621,13 @@ class DTMFHandler:
             digit = 'Pound'
         elif digit == '*':
             digit = 'Star'
-        proc = getattr(self,'on_dtmf_'+digit, None)
+        proc = getattr(self, 'on_dtmf_' + digit, None)
         if proc is None and digit >= '0' and digit <= '9':
-            proc = getattr(self,'on_dtmf_digit', None)
+            proc = getattr(self, 'on_dtmf_digit', None)
         if proc is None and digit >= 'A' and digit <= 'D':
-            proc = getattr(self,'on_dtmf_letter', None)
+            proc = getattr(self, 'on_dtmf_letter', None)
         if proc is None:
-            proc = getattr(self,'on_dtmf', None)
+            proc = getattr(self, 'on_dtmf', None)
 
         if proc is None:
             log.info("Unhandled DTMF %s on %s", evt.digit, self)
@@ -621,8 +638,9 @@ class DTMFHandler:
                 p = await p
             return p
 
+
 class _ThingEvtHandler(BaseEvtHandler):
-    async def run(self, evt: anyio.abc.Event = None):
+    async def run(self, evt: anyio.abc.Event=None):
         if self._tg is None:
             raise RuntimeError("I do not have a task group. Use 'async with' or 'start_task'.")
         handler = self.ref.on_event("*", self.handle)
@@ -636,18 +654,19 @@ class ChannelState(_ThingEvtHandler):
     """This is the generic state machine for a single channel."""
     _src = 'channel'
     last_cause = None
+
     def __init__(self, channel):
         self.channel = channel
         super().__init__(channel.client)
 
     def _repr(self):
-        res=super()._repr()
+        res = super()._repr()
         try:
-            res.append(("ch_state",self.channel.state))
+            res.append(("ch_state", self.channel.state))
         except AttributeError:
             pass
         if self.last_cause is not None:
-            res.append(("cause",self.last_cause))
+            res.append(("cause", self.last_cause))
         return res
 
     async def on_DialResult(self, evt):
@@ -675,7 +694,7 @@ class BridgeState(_ThingEvtHandler):
     The bridge is always auto-destroyed when its handler ends.
     """
     _src = 'bridge'
-    TYPE="mixing"
+    TYPE = "mixing"
     calls = set()
     bridge = None
 
@@ -742,8 +761,13 @@ class BridgeState(_ThingEvtHandler):
     async def _dial(self, State=ChannelState, **kw):
         """Helper to start a call"""
         ch_id = self.client.generate_id("C")
-        log.debug("DIAL %s",kw.get('endpoint', 'unknown'))
-        ch = await self.client.channels.originate(channelId=ch_id, app=self.client._app, appArgs=["dialed", kw.get('endpoint', 'unknown')], **kw)
+        log.debug("DIAL %s", kw.get('endpoint', 'unknown'))
+        ch = await self.client.channels.originate(
+            channelId=ch_id,
+            app=self.client._app,
+            appArgs=["dialed", kw.get('endpoint', 'unknown')],
+            **kw
+        )
         self.calls.add(ch)
         ch.remember()
         await self._add_monitor(ch)
@@ -826,7 +850,7 @@ class BridgeState(_ThingEvtHandler):
         except KeyError:
             pass
         await self.on_channel_added(ch)
-        if ch.state == "Up":# and ch.prev_state != "Up":
+        if ch.state == "Up":  # and ch.prev_state != "Up":
             await self.on_connected(ch)
 
     async def on_ChannelLeftBridge(self, evt):
@@ -834,14 +858,14 @@ class BridgeState(_ThingEvtHandler):
 
     async def _add_monitor(self, ch):
         """Listen to non-bridge events on the channel"""
-        if not hasattr(ch,'_bridge_evt'):
+        if not hasattr(ch, '_bridge_evt'):
             ch._bridge_evt = ch.on_event("*", self._chan_evt)
 
     async def _chan_evt(self, evt):
         """Dispatcher for forwarding a channel's events to this bridge."""
-        if getattr(evt,'bridge',None) is self:
-            log.debug("Dispatch hasBRIDGE:%s for %s",evt.type,self)
-            return # already calling us via regular dispatch
+        if getattr(evt, 'bridge', None) is self:
+            log.debug("Dispatch hasBRIDGE:%s for %s", evt.type, self)
+            return  # already calling us via regular dispatch
         await self.handle(evt)
 
     async def on_ChannelStateChange(self, evt):
@@ -883,8 +907,8 @@ class BridgeState(_ThingEvtHandler):
         except AttributeError:
             pass
         else:
-            cc = CAUSE_MAP.get(cc,"normal")
-            for c in list(self.bridge.channels)+list(self.calls):
+            cc = CAUSE_MAP.get(cc, "normal")
+            for c in list(self.bridge.channels) + list(self.calls):
                 await c.set_reason(cc)
 
     async def _chan_dead(self, evt):
@@ -923,8 +947,8 @@ class BridgeState(_ThingEvtHandler):
         if self.bridge is None:
             return
         async with anyio.move_on_after(2, shield=True) as s:
-            log.info("TEARDOWN %s %s",self,self.bridge.channels)
-            for ch in list(self.bridge.channels)+list(self.calls):
+            log.info("TEARDOWN %s %s", self, self.bridge.channels)
+            for ch in list(self.bridge.channels) + list(self.calls):
                 try:
                     await ch.hang_up(reason=hangup_reason)
                 except Exception as exc:
@@ -942,6 +966,7 @@ class HangupBridgeState(BridgeState):
     """A bridge controller that hangs up all channels and deletes its
     bridge as soon as there is only one active channel left.
     """
+
     async def on_channel_end(self, ch, evt=None):
         await super().on_channel_end(ch, evt)
         if _count(1 for c in self.bridge.channels if c.state == 'Up') < 2:
@@ -952,7 +977,8 @@ class HangupBridgeState(BridgeState):
 
 class ToplevelChannelState(ChannelState):
     """A channel state machine that unconditionally hangs up its channel on exception"""
-    async def run(self, evt: anyio.abc.Event = None):
+
+    async def run(self, evt: anyio.abc.Event=None):
         """Task for this state. Hangs up the channel on exit."""
         try:
             await super().run(evt=evt)
@@ -967,19 +993,22 @@ class ToplevelChannelState(ChannelState):
     async def hang_up(self, reason="normal"):
         await self.channel.set_reason(reason)
         await self.channel.hang_up()
-    
+
     async def done(self):
         await self.channel.hang_up()
         await super().done()
 
+
 class OutgoingChannelState(ToplevelChannelState):
     """A channel state machine that waits for an initial StasisStart event before proceeding"""
-    async def run(self, evt: anyio.abc.Event = None):
+
+    async def run(self, evt: anyio.abc.Event=None):
         async for evt in self.channel:
             if evt.type != "StatisStart":
                 raise StateError(evt)
             break
         await super().run(evt=evt)
+
 
 class CallManager:
     state = None
@@ -1017,13 +1046,23 @@ class CallManager:
 
 ### A couple of helper classes
 
+
 class _ReadNumber(DTMFHandler):
     _digit_timer = None
     _digit_deadline = None
     _total_timer = None
     _total_deadline = None
 
-    def __init__(self, prev, playback=None, timeout=60, first_digit_timeout=None, digit_timeout=10, max_len=15, min_len=5):
+    def __init__(
+            self,
+            prev,
+            playback=None,
+            timeout=60,
+            first_digit_timeout=None,
+            digit_timeout=10,
+            max_len=15,
+            min_len=5
+    ):
         if first_digit_timeout is None:
             first_digit_timeout = digit_timeout
         self.total_timeout = timeout
@@ -1067,7 +1106,7 @@ class _ReadNumber(DTMFHandler):
             except BadStatus:
                 pass
 
-    async def _digit_timer_(self, evt: anyio.abc.Event = None):
+    async def _digit_timer_(self, evt: anyio.abc.Event=None):
         self._digit_deadline = self.first_digit_timeout + await anyio.current_time()
         async with anyio.open_cancel_scope() as sc:
             self._digit_timer = sc
@@ -1080,7 +1119,7 @@ class _ReadNumber(DTMFHandler):
                     raise DigitTimeoutError(self.num) from None
                 await anyio.sleep(delay)
 
-    async def _total_timer_(self, evt: anyio.abc.Event = None):
+    async def _total_timer_(self, evt: anyio.abc.Event=None):
         self._total_deadline = self.total_timeout + await anyio.current_time()
         async with anyio.open_cancel_scope() as sc:
             self._total_timer = sc
@@ -1118,9 +1157,11 @@ class _ReadNumber(DTMFHandler):
         await self.set_timeout()
 
     async def set_timeout(self):
-        self._digit_deadline = (await anyio.current_time()) + (self.digit_timeout if self.num else self.first_digit_timeout)
+        self._digit_deadline = (await anyio.current_time()
+                                ) + (self.digit_timeout if self.num else self.first_digit_timeout)
 
-class SyncReadNumber(_ReadNumber,SyncEvtHandler):
+
+class SyncReadNumber(_ReadNumber, SyncEvtHandler):
     """
     This event handler receives and returns a sequence of digits.
     The pound key terminates the sequence. The star key restarts.
@@ -1129,7 +1170,8 @@ class SyncReadNumber(_ReadNumber,SyncEvtHandler):
     """
     pass
 
-class AsyncReadNumber(_ReadNumber,AsyncEvtHandler):
+
+class AsyncReadNumber(_ReadNumber, AsyncEvtHandler):
     """
     This event handler receives and returns a sequence of digits.
     The pound key terminates the sequence. The star key restarts.
@@ -1138,16 +1180,18 @@ class AsyncReadNumber(_ReadNumber,AsyncEvtHandler):
     """
     pass
 
+
 class SyncPlay(SyncEvtHandler):
     """
     This event handler plays a sound and returns when it has finished.
 
     Sync version. There is no async version because you get an event with the result anyway.
     """
+
     def __init__(self, prev, media):
         super().__init__(prev)
         self.media = media
-    
+
     async def on_start(self):
         await super().on_start()
         self.cb = self.ref.on_event("PlaybackFinished", self.on_play_end)
@@ -1158,5 +1202,3 @@ class SyncPlay(SyncEvtHandler):
         if evt.playback.media_uri == self.media:
             self.cb.close()
             await self.done()
-
-
