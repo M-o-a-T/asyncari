@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-
 """Model for mapping ARI Swagger resources and operations into objects.
 
 The API is modeled into the Repository pattern, as you would find in Domain
@@ -17,38 +16,45 @@ The first-class objects also have 'on_event' methods, which can subscribe to
 Stasis events relating to that object.
 """
 
-import re
-import logging
-import json
 import inspect
-from functools import partial
+import json
+import logging
+import re
 from weakref import WeakValueDictionary
-from contextlib import suppress
+
 import anyio
 from asks.errors import BadStatus
+
 from .util import mayNotExist
 
 log = logging.getLogger(__name__)
 
 NO_CONTENT = 204
 
+
 class StateError(RuntimeError):
     """The expected or waited-for state didn't occur"""
+
 
 class EventTimeout(Exception):
     """There were no events past the timeout"""
 
+
 class ResourceExit(Exception):
     """The resource does no longer exist."""
+
 
 class ChannelExit(ResourceExit):
     """The channel has hung up."""
 
+
 class BridgeExit(ResourceExit):
     """The bridge has terminated."""
 
+
 class OperationError(RuntimeError):
     """Some Swagger operation failed"""
+
 
 class Repository(object):
     """ARI repository.
@@ -81,29 +87,31 @@ class Repository(object):
         This method needs to return a callable that returns a coroutine,
         which allows us to defer the attribute lookup.
         """
+
         class AttrOp:
-            def __init__(self,p,item):
+            def __init__(self, p, item):
                 self.p = p
                 self.item = item
+
             def __repr__(self):
                 return "<AttrOp<%s>.%s>" % (self.p, self.item)
 
             async def __call__(self, **kwargs):
                 oper = getattr(self.p.api, self.item, None)
                 if not (hasattr(oper, '__call__') and hasattr(oper, 'json')):
-                    raise AttributeError(
-                        "'%r' object has no attribute '%s'" % (self.p, self.item))
+                    raise AttributeError("'%r' object has no attribute '%s'" % (self.p, self.item))
                 jsc = oper.json
                 try:
                     res = await oper(**kwargs)
                 except BadStatus as exc:
-                    d = getattr(exc,'data', None)
+                    d = getattr(exc, 'data', None)
                     if d is not None:
-                        d = d.get('message',None)
+                        d = d.get('message', None)
                     raise OperationError(d) from exc
 
                 res = await promote(self.p.client, res, jsc)
                 return res
+
         return AttrOp(self, item)
         #return lambda **kwargs: promote(self.client, oper(**kwargs), oper.json)
 
@@ -153,7 +161,8 @@ class DefaultObjectIdGenerator(ObjectIdGenerator):
         return obj_json[self.id_field]
 
 
-QLEN=99
+QLEN = 99
+
 
 class BaseObject(object):
     """Base class for ARI domain objects.
@@ -220,7 +229,7 @@ class BaseObject(object):
             await self._changed.wait()
 
     async def _has_changed(self):
-        c,self._changed = self._changed,anyio.create_event()
+        c, self._changed = self._changed, anyio.create_event()
         await c.set()
 
     def remember(self):
@@ -249,8 +258,7 @@ class BaseObject(object):
     def _get_enriched(self, item):
         oper = getattr(self.api, item, None)
         if not (hasattr(oper, '__call__') and hasattr(oper, 'json')):
-            raise AttributeError(
-                "'%r' object has no attribute '%r'" % (self, item))
+            raise AttributeError("'%r' object has no attribute '%r'" % (self, item))
         jsc = oper.json
 
         async def enrich_operation(**kwargs):
@@ -271,13 +279,11 @@ class BaseObject(object):
 
         return enrich_operation
 
-
     async def create(self, **k):
         res = await self._get_enriched('create')(**k)
         type(res).active.add(res)
         return res
-        
-        
+
     def on_event(self, event_type, fn, *args, **kwargs):
         """Register event callbacks for this specific domain object.
 
@@ -309,18 +315,17 @@ class BaseObject(object):
 
         return EventUnsubscriber()
 
-
     async def do_event(self, msg):
         """Run a message through this object's event queue/list"""
         callbacks = self.event_listeners.get(msg.type, []) + self.event_listeners.get("*", [])
         for p, a, k in callbacks:
-            log.debug("RunCb:%s %s %s %s",self,p,a,k)
+            log.debug("RunCb:%s %s %s %s", self, p, a, k)
             r = p(msg, *a, **k)
             if inspect.iscoroutine(r):
                 await r
 
         if self._q is not None:
-            if self._q_len >= QLEN-1:
+            if self._q_len >= QLEN - 1:
                 raise RuntimeError("queue full")
             self._q_len += 1
             await self._q.put(msg)
@@ -369,14 +374,14 @@ class Channel(BaseObject):
     api = "channels"
     bridge = None
     _do_hangup = None
-    hangup_delay=0.3
+    hangup_delay = 0.3
     _reason = None
     _reason_seen = None
     prev_state = None
     _state = None
 
     # last is better
-    REASONS = ( "congestion", "no_answer", "busy", "normal" )
+    REASONS = ("congestion", "no_answer", "busy", "normal")
 
     def _init(self):
         super()._init()
@@ -426,7 +431,7 @@ class Channel(BaseObject):
             self.state = "Gone"
             await self._changed.set()
 
-    async def _hangup_task(self, evt: anyio.abc.Event = None):
+    async def _hangup_task(self, evt: anyio.abc.Event=None):
         if evt is not None:
             await evt.set()
         if self._reason is None:
@@ -446,7 +451,7 @@ class Channel(BaseObject):
         :param channel: Channel to hangup.
         """
         if not self.json:
-            self.json={"id": self.id}
+            self.json = {"id": self.id}
         with mayNotExist:
             await self.hangup()
 
@@ -501,6 +506,7 @@ class Channel(BaseObject):
     async def wait_up(self):
         def chk():
             return self.state == "Up"
+
         await self.wait_for(chk)
 
     async def wait_bridged(self, bridge=None):
@@ -509,6 +515,7 @@ class Channel(BaseObject):
 
             if None, wait for the channel to be connected to any bridge.
             """
+
         def chk():
             if self._do_hangup is not None:
                 raise StateError(self)
@@ -516,6 +523,7 @@ class Channel(BaseObject):
                 return self.bridge is not None
             else:
                 return self.bridge is bridge
+
         await self.wait_for(chk)
 
     async def wait_not_bridged(self, bridge=None):
@@ -524,11 +532,13 @@ class Channel(BaseObject):
 
             if None, wait for the channel to be not connected to any bridge.
             """
+
         def chk():
             if bridge is None:
                 return self.bridge is None
             else:
                 return self.bridge is not bridge
+
         await self.wait_for(chk)
 
     async def wait_not_playing(self):
@@ -545,6 +555,7 @@ class Channel(BaseObject):
         if evt.type in {"StasisEnd", "ChannelDestroyed"}:
             raise StopAsyncIteration
         return evt
+
 
 class Bridge(BaseObject):
     """First class object API.
@@ -604,11 +615,11 @@ class Bridge(BaseObject):
             log.warn("Event not recognized: %s for %s", msg, self)
         await super().do_event(msg)
 
-        if hasattr(msg,'bridge'):
+        if hasattr(msg, 'bridge'):
             for ch in self.channels - msg.bridge.channels:
-                log.warn("%s: %s not listed",self,ch)
+                log.warn("%s: %s not listed", self, ch)
             for ch in msg.bridge.channels - self.channels:
-                log.warn("%s: %s not known",self,ch)
+                log.warn("%s: %s not known", self, ch)
 
     async def __anext__(self):
         evt = await super().__anext__()
@@ -704,7 +715,6 @@ class LiveRecording(BaseObject):
         await self._is_done.wait()
 
 
-
 class StoredRecording(BaseObject):
     """First class object API.
 
@@ -727,10 +737,7 @@ class EndpointIdGenerator(ObjectIdGenerator):
     """
 
     def get_params(self, obj_json):
-        return {
-            'tech': obj_json['technology'],
-            'resource': obj_json['resource']
-        }
+        return {'tech': obj_json['technology'], 'resource': obj_json['resource']}
 
     def id_as_str(self, obj_json):
         return "%(tech)s/%(resource)s" % self.get_params(obj_json)
@@ -815,14 +822,14 @@ async def promote(client, resp, operation_json):
     :return:
     """
     if resp.status_code == NO_CONTENT:
-        log.debug("resp=%s",resp)
+        log.debug("resp=%s", resp)
         return None
     res = resp.text
     if res == "":
-        log.debug("resp=%s (empty)",resp)
+        log.debug("resp=%s (empty)", resp)
         return None
     resp_json = json.loads(res)
-    log.debug("resp=%s",resp_json)
+    log.debug("resp=%s", resp_json)
 
     response_class = operation_json['responseClass']
     is_list = False

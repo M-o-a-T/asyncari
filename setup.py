@@ -4,10 +4,8 @@ LONG_DESC = open("README.rst", encoding="utf-8").read()
 
 setup(
     name="asyncari",
-    use_scm_version={
-        "version_scheme": "guess-next-dev",
-        "local_scheme": "dirty-tag"
-    },
+    use_scm_version={"version_scheme": "guess-next-dev",
+                     "local_scheme": "dirty-tag"},
     description="A AnyIO-ified adapter for the Asterisk ARI interface",
     url="https://github.com/M-o-a-T/asyncari",
     long_description=open("README.rst").read(),
@@ -20,7 +18,7 @@ setup(
     ],
     install_requires=[
         "trio >= 0.11",
-        "anyio >= 1.0.0",
+        "anyio >= 3.1.0",
         "asyncswagger11",
         "asks >= 2.2",
         "attrs>=18",

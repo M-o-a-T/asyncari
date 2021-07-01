@@ -1,59 +1,58 @@
 #
 # Copyright (c) 2018 Matthias Urlichs
 #
-
 """Asyncified ARI client library.
 """
 
-import re
-import os
 import json
-import urllib
-import anyio
-from asyncswagger11.client import SwaggerClient
-import time
-import inspect
+import logging
+import os
+import re
 import sys
+import time
+import urllib
 from pprint import pformat
 
+import anyio
+from asyncswagger11.client import SwaggerClient
 from wsproto.events import CloseConnection, TextMessage
+
 from .model import CLASS_MAP
-
-from functools import partial
-
-from .model import Repository
 from .model import Channel, Bridge, Playback, LiveRecording, StoredRecording, Endpoint, DeviceState, Sound
+from .model import Repository
 
-import logging
 log = logging.getLogger(__name__)
 
 __all__ = ["Client"]
+
 
 class _EventHandler(object):
     """Class to allow events to be unsubscribed.
     """
 
     def __init__(self, client, event_type, mangler=None, filter=None):
+        self.send_stream, self.receive_stream = anyio.create_memory_object_stream()
         self.client = client
         self.event_type = event_type
         self.mangler = mangler
         if filter is None:
+
             def filter(evt):
                 return True
+
         self.filter = filter
 
     async def __call__(self, msg):
         if not self.filter(msg):
             return
-        await self.q.put(msg)
+        await self.send_stream.send(msg)
 
     def open(self):
-        self.q = anyio.create_queue(10)
-        log.debug("ADD %s",self.event_type)
+        log.debug("ADD %s", self.event_type)
         self.client.event_listeners.setdefault(self.event_type, list()).append(self)
 
     def close(self):
-        log.debug("DEL %s",self.event_type)
+        log.debug("DEL %s", self.event_type)
         self.client.event_listeners[self.event_type].remove(self)
 
     async def __aenter__(self):
@@ -68,12 +67,13 @@ class _EventHandler(object):
 
     async def __anext__(self):
         while True:
-            res = await self.q.get()
+            res = await self.receive_stream.receive()
             if self.mangler:
                 res = self.mangler(res)
                 if res is None:
                     continue
             return res
+
 
 class Client:
     """Async ARI Client object.
@@ -91,7 +91,7 @@ class Client:
         self.swagger = SwaggerClient(http_client=http_client, url=url)
         self.class_map = CLASS_MAP.copy()
         tm = time.time()
-        self._id_name = "ARI.%x.%x%03x" % (os.getpid(),int(tm),int(tm*0x1000)&0xFFF)
+        self._id_name = "ARI.%x.%x%03x" % (os.getpid(), int(tm), int(tm * 0x1000) & 0xFFF)
         self._id_seq = 0
         self._reader = None  # Event reader
 
@@ -101,11 +101,11 @@ class Client:
     def generate_id(self, typ=""):
         self._id_seq += 1
         return "%s.%s%d" % (self._id_name, typ, self._id_seq)
-        
+
     def is_my_id(self, id):
         if id == self._id_name:
             return True
-        return id.startswith(self._id_name+'.')
+        return id.startswith(self._id_name + '.')
 
     async def __aenter__(self):
         await self._init()
@@ -144,7 +144,7 @@ class Client:
 
     def __aiter__(self):
         if self._reader is None:
-            self._reader = _EventHandler(self,'*')
+            self._reader = _EventHandler(self, '*')
             self._reader.open()
         return self._reader
 
@@ -154,14 +154,13 @@ class Client:
 
         Returns an async iterator that yields (channel,start_event) tuples.
         """
-        return self.on_channel_event("StasisStart",
-                filter=lambda evt: evt.args[0] == endpoint)
+        return self.on_channel_event("StasisStart", filter=lambda evt: evt.args[0] == endpoint)
 
     @property
     def app(self):
         return self._app
 
-    async def _run(self, evt: anyio.abc.Event = None):
+    async def _run(self, evt: anyio.abc.Event=None):
         """Connect to the WebSocket and begin processing messages.
 
         This method will block until all messages have been received from the
@@ -179,7 +178,7 @@ class Client:
             self._app = apps[0]
             apps = ','.join(apps)
         else:
-            self._app = apps.split(',',1)[0]
+            self._app = apps.split(',', 1)[0]
 
         try:
             ws = await self.swagger.events.eventWebsocket(app=apps)
@@ -197,21 +196,21 @@ class Client:
                     await ws.close()
             del self._app
 
-    async def _check_runtime(self, recv, evt: anyio.abc.Event = None):
+    async def _check_runtime(self, recv, evt: anyio.abc.Event=None):
         """This gets streamed a message when processing begins, and `None`
         when it ends. Repeat.
         """
         if evt is not None:
             await evt.set()
         while True:
-            msg = await recv.get()
+            msg = await recv.receive()
             if msg is False:
                 return
             assert msg is not None
 
             try:
                 async with anyio.fail_after(0.2):
-                    msg = await recv.get()
+                    msg = await recv.receive()
                     if msg is False:
                         return
                     assert msg is None
@@ -220,12 +219,12 @@ class Client:
                 t = await anyio.current_time()
                 # don't hard-fail that fast when debugging
                 async with anyio.fail_after(1 if 'pdb' not in sys.modules else 99):
-                    msg = await recv.get()
+                    msg = await recv.receive()
                     if msg is False:
                         return
                     assert msg is None
                     pass  # processing delayed, you have a problem
-                log.error("Processing recovered after %.2f sec", (await anyio.current_time())-t)
+                log.error("Processing recovered after %.2f sec", (await anyio.current_time()) - t)
 
     async def __run(self, ws):
         """Drains all messages from a WebSocket, sending them to the client's
@@ -233,32 +232,35 @@ class Client:
 
         :param ws: WebSocket to drain.
         """
-        q = anyio.create_queue(0)
-        await self.taskgroup.spawn(self._check_runtime, q)
+
+        send_stream, receive_stream = anyio.create_memory_object_stream()
+
+        await self.taskgroup.spawn(self._check_runtime, receive_stream)
 
         async for msg in ws:
             if isinstance(msg, CloseConnection):
                 break
             elif not isinstance(msg, TextMessage):
                 log.warning("Unknown JSON message type: %s", repr(msg))
-                continue # ignore
+                continue  # ignore
             msg_json = json.loads(msg.data)
             if not isinstance(msg_json, dict) or 'type' not in msg_json:
                 log.error("Invalid event: %s", msg)
                 continue
             try:
-                await q.put(msg_json)
+                await send_stream.send(msg_json)
                 await self.process_ws(msg_json)
             finally:
-                await q.put(None)
-        await q.put(False)
+                await send_stream.send(None)
+        await send_stream.send(False)
 
     async def _init(self, RepositoryFactory=Repository):
         await self.swagger.init()
         # Extract models out of the events resource
-        events = [api['api_declaration']
-                  for api in self.swagger.api_docs['apis']
-                  if api['name'] == 'events']
+        events = [
+            api['api_declaration'] for api in self.swagger.api_docs['apis']
+            if api['name'] == 'events'
+        ]
         if events:
             self.event_models = events[0]['models']
         else:
@@ -266,7 +268,8 @@ class Client:
 
         self.repositories = {
             name: Repository(self, name, api)
-            for (name, api) in self.swagger.resources.items()}
+            for (name, api) in self.swagger.resources.items()
+        }
         self.websockets = set()
         self.event_listeners = {}
 
@@ -277,8 +280,7 @@ class Client:
         """
         repo = self.get_repo(item)
         if not repo:
-            raise AttributeError(
-                "'%r' object has no attribute '%s'" % (self, item))
+            raise AttributeError("'%r' object has no attribute '%s'" % (self, item))
         return repo
 
     async def close(self):
@@ -287,7 +289,7 @@ class Client:
         This method will close any currently open WebSockets, and close the
         underlying Swaggerclient.
         """
-        for ws in list(self.websockets): # changes during processing
+        for ws in list(self.websockets):  # changes during processing
             await ws.close()
         await self.swagger.close()
 
@@ -353,11 +355,9 @@ class Client:
             raise ValueError("Cannot find event model '%s'" % event_type)
 
         # Extract the fields that are of the expected type
-        obj_fields = [k for (k, v) in event_model['properties'].items()
-                      if v['type'] == model_id]
+        obj_fields = [k for (k, v) in event_model['properties'].items() if v['type'] == model_id]
         if not obj_fields:
-            raise ValueError("Event model '%s' has no fields of type %s"
-                             % (event_type, model_id))
+            raise ValueError("Event model '%s' has no fields of type %s" % (event_type, model_id))
 
         def extract_objects(event):
             """Extract objects of a given type from an event.
@@ -368,9 +368,10 @@ class Client:
                                       callback
             """
             # Extract the fields which are of the expected type
-            obj = {obj_field: factory_fn(self, json=event[obj_field])
-                   for obj_field in obj_fields
-                   if event._get(obj_field)}
+            obj = {
+                obj_field: factory_fn(self, json=event[obj_field])
+                for obj_field in obj_fields if event._get(obj_field)
+            }
             # If there's only one field in the schema, just pass that along
             if len(obj_fields) == 1:
                 if obj:
@@ -444,6 +445,7 @@ class Client:
         """
         return self.on_object_event(event_type, Sound, 'Sound', filter=filter)
 
+
 class EventMessage:
     """This class encapsulates an event.
     All elements with known types are converted to objects,
@@ -453,6 +455,7 @@ class EventMessage:
         The "Dial" event is converted to "DialStart", "DialState" or
         "DialResult" depending on whether ``dialstatus`` is empty or not.
     """
+
     def __init__(self, client, msg):
         self._client = client
         self._orig_msg = msg
@@ -509,5 +512,3 @@ class EventMessage:
 
     def _get(self, k, v=None):
         return self._orig_msg.get(k, v)
-
-

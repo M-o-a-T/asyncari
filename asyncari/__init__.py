@@ -1,15 +1,17 @@
 #
 # Copyright (c) 2018, Matthias Urlichs
 #
-
 """asyncari client
 """
 
-from asyncari.client import Client
-from asyncswagger11.http_client import AsynchronousHttpClient, ApiKeyAuthenticator
 import urllib.parse
+
 import anyio
 from async_generator import asynccontextmanager
+from asyncswagger11.http_client import AsynchronousHttpClient, ApiKeyAuthenticator
+
+from asyncari.client import Client
+
 
 @asynccontextmanager
 async def connect(base_url, apps, username, password):
@@ -27,8 +29,7 @@ async def connect(base_url, apps, username, password):
 
     """
     host = urllib.parse.urlparse(base_url).netloc.split(':')[0]
-    http_client = AsynchronousHttpClient(
-        auth=ApiKeyAuthenticator(host, username+':'+password))
+    http_client = AsynchronousHttpClient(auth=ApiKeyAuthenticator(host, username + ':' + password))
     try:
         async with anyio.create_task_group() as tg:
             client = Client(tg, base_url, apps, http_client)
@@ -37,8 +38,8 @@ async def connect(base_url, apps, username, password):
                     yield client
                 finally:
                     await tg.cancel_scope.cancel()
-                pass # end client
-            pass # end taskgroup
+                pass  # end client
+            pass  # end taskgroup
     finally:
         await http_client.close()
-        pass # end
+        pass  # end
