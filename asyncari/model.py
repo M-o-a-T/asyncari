@@ -179,7 +179,8 @@ class BaseObject(object):
     cache = None
     active = None
     id = None
-    _q = None
+    _qr = None
+    _qw = None
     _qlen = 0
     json = None
     api = None
@@ -215,7 +216,7 @@ class BaseObject(object):
         self.api = getattr(self.client.swagger, self.api)
         self.id = id
         self.event_listeners = {}
-        self._changed = anyio.create_event()
+        self._changed = anyio.Event()
         self._init()
 
     def _init(self):
@@ -229,7 +230,7 @@ class BaseObject(object):
             await self._changed.wait()
 
     async def _has_changed(self):
-        c, self._changed = self._changed, anyio.create_event()
+        c, self._changed = self._changed, anyio.Event()
         await c.set()
 
     def remember(self):
@@ -324,30 +325,26 @@ class BaseObject(object):
             if inspect.iscoroutine(r):
                 await r
 
-        if self._q is not None:
-            if self._q_len >= QLEN - 1:
-                raise RuntimeError("queue full")
-            self._q_len += 1
-            await self._q.put(msg)
+        if self._qw is not None:
+            await self._qw.send_nowait(msg)
 
         # Finally trigger waiting checks
         await self._has_changed()
 
     def __aiter__(self):
-        if self._q is None:
-            self._q = anyio.create_queue(QLEN)
+        if self._qr is None:
+            self._qw,self._qr = anyio.create_memory_object_stream(QLEN)
         return self
 
     async def __anext__(self):
-        if self._q is None:
+        if self._qr is None:
             raise StopAsyncIteration
         if self._waiting:
             self._waiting = False
             raise RuntimeError("Another task is waiting")
         try:
             self._waiting = True
-            res = await self._q.get()
-            self._q_len -= 1
+            res = await self._qr.receive()
         finally:
             if not self._waiting:
                 raise RuntimeError("Another task has waited")
@@ -356,9 +353,10 @@ class BaseObject(object):
 
     async def aclose(self):
         """No longer queue events"""
-        if self._q is not None:
-            await self._q.put(None)
-            self._q = None
+        if self._qw is not None:
+            await self._qw.aclose()
+            self._qw = None
+            self._qr = None
 
 
 class Channel(BaseObject):
@@ -414,7 +412,7 @@ class Channel(BaseObject):
         if reason is not None:
             await self.set_reason(reason)
         if self._reason is None:
-            self._reason_seen = anyio.create_event()
+            self._reason_seen = anyio.Event()
         await self.client.taskgroup.spawn(self._hangup_task)
 
     async def exit_hangup(self, reason="normal"):
@@ -431,11 +429,11 @@ class Channel(BaseObject):
             self.state = "Gone"
             await self._changed.set()
 
-    async def _hangup_task(self, evt: anyio.abc.Event=None):
+    async def _hangup_task(self, evt: anyio.Event=None):
         if evt is not None:
             await evt.set()
         if self._reason is None:
-            async with anyio.move_on_after(self.hangup_delay):
+            with anyio.move_on_after(self.hangup_delay):
                 await self._reason_seen.wait()
 
         try:
@@ -644,8 +642,8 @@ class Playback(BaseObject):
     ref = None
 
     def _init(self):
-        self._is_playing = anyio.create_event()
-        self._is_done = anyio.create_event()
+        self._is_playing = anyio.Event()
+        self._is_done = anyio.Event()
         target = self.json.get('target_uri', '')
         if target.startswith('channel:'):
             self.ref = Channel(self.client, id=target[8:])
@@ -686,8 +684,8 @@ class LiveRecording(BaseObject):
     ref = None
 
     def _init(self):
-        self._is_recording = anyio.create_event()
-        self._is_done = anyio.create_event()
+        self._is_recording = anyio.Event()
+        self._is_done = anyio.Event()
         target = self.json.get('target_uri', '')
         if target.startswith('channel:'):
             self.ref = Channel(self.client, id=target[8:])

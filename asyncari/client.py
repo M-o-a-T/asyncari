@@ -109,13 +109,13 @@ class Client:
 
     async def __aenter__(self):
         await self._init()
-        evt = anyio.create_event()
+        evt = anyio.Event()
         await self.taskgroup.spawn(self._run, evt)
         await evt.wait()
         return self
 
     async def __aexit__(self, *tb):
-        async with anyio.fail_after(1, shield=True) as scope:
+        with anyio.fail_after(1, shield=True) as scope:
             await self.close()
 
     async def new_channel(self, State, endpoint, **kw):
@@ -160,7 +160,7 @@ class Client:
     def app(self):
         return self._app
 
-    async def _run(self, evt: anyio.abc.Event=None):
+    async def _run(self, evt: anyio.Event=None):
         """Connect to the WebSocket and begin processing messages.
 
         This method will block until all messages have been received from the
@@ -196,7 +196,7 @@ class Client:
                     await ws.close()
             del self._app
 
-    async def _check_runtime(self, recv, evt: anyio.abc.Event=None):
+    async def _check_runtime(self, recv, evt: anyio.Event=None):
         """This gets streamed a message when processing begins, and `None`
         when it ends. Repeat.
         """
@@ -209,22 +209,22 @@ class Client:
             assert msg is not None
 
             try:
-                async with anyio.fail_after(0.2):
+                with anyio.fail_after(0.2):
                     msg = await recv.receive()
                     if msg is False:
                         return
                     assert msg is None
             except TimeoutError:
                 log.error("Processing delayed: %s", msg)
-                t = await anyio.current_time()
+                t = anyio.current_time()
                 # don't hard-fail that fast when debugging
-                async with anyio.fail_after(1 if 'pdb' not in sys.modules else 99):
+                with anyio.fail_after(1 if 'pdb' not in sys.modules else 99):
                     msg = await recv.receive()
                     if msg is False:
                         return
                     assert msg is None
                     pass  # processing delayed, you have a problem
-                log.error("Processing recovered after %.2f sec", (await anyio.current_time()) - t)
+                log.error("Processing recovered after %.2f sec", (anyio.current_time()) - t)
 
     async def __run(self, ws):
         """Drains all messages from a WebSocket, sending them to the client's

@@ -91,7 +91,7 @@ class DialFailed(RuntimeError):
 def as_task(proc):
     @functools.wraps(proc)
     async def worker(self, *a, **kw):
-        await self.taskgroup.spawn(functools.partial(proc, self, *a, **kw), name=proc.__name__)
+        self.taskgroup.start_soon(functools.partial(proc, self, *a, **kw), name=proc.__name__)
 
     assert inspect.iscoroutinefunction(proc)
     return worker
@@ -154,7 +154,8 @@ class BaseEvtHandler:
     _done = None
 
     # Our event channel
-    _q = None
+    _qr = None
+    _qw = None
 
     # If this is a model-based toplevel handler, this is the name of the attribute it's based on
     _src = None
@@ -179,24 +180,24 @@ class BaseEvtHandler:
     async def start_task(self):
         """This is a shortcut for running this object's async context
         manager / event loop in a separate task."""
-        await self._base_tg.spawn(self._run_ctx, name="start_task " + self.ref_id)
+        self._base_tg.start_soon(self._run_ctx, name="start_task " + self.ref_id)
 
     async def _run_ctx(self, evt: anyio.abc.Event=None):
         assert self._done is None
-        self._done = anyio.create_event()
+        self._done = anyio.Event()
         async with self.task:
             if evt is not None:
                 await evt.set()
             await self._done.wait()
 
     async def _task_setup(self):
-        assert self._q is None, self._q
-        self._q = anyio.create_queue(20)
+        assert self._qw is None
+        self._qw,self._qr = anyio.create_memory_object_stream(20)
 
     async def _task_teardown(self):
-        if self._q is not None:
-            await self._q.put(None)
-            self._q = None
+        if self._qw is not None:
+            await self._qw.aclose()
+            self._qr, self._qw = None, None
 
     @property
     @asynccontextmanager
@@ -209,16 +210,18 @@ class BaseEvtHandler:
         if self._run_with_scope is not None:
             raise RuntimeError("Task already running")
 
-        async with anyio.open_cancel_scope() as sc:
+        yielded = False
+        with anyio.open_cancel_scope() as sc:
             try:
                 if self._done is None:
-                    self._done = anyio.create_event()
+                    self._done = anyio.Event()
                 self._run_with_exc = None
 
                 self._run_with_scope = sc
-                evt = anyio.create_event()
-                await self._base_tg.spawn(self._run_with_tg, evt, name="run " + repr(self))
+                evt = anyio.Event()
+                self._base_tg.start_soon(self._run_with_tg, evt, name="run " + repr(self))
                 await evt.wait()
+                yielded = True
                 yield self
 
             except BaseException as ex:
@@ -237,11 +240,14 @@ class BaseEvtHandler:
                 if self._tg is not None:
                     await self._tg.cancel_scope.cancel()
 
-                async with anyio.move_on_after(2, shield=True):
+                with anyio.move_on_after(2, shield=True):
                     await self.done()
 
                     if self._done is not None:
                         await self._done.wait()
+                if sc.cancel_called and not yielded:
+                    yield self # ugh
+                pass
 
     @property
     def taskgroup(self):
@@ -306,8 +312,8 @@ class BaseEvtHandler:
             await self._handle_here(evt)
 
     async def _handle_here(self, evt):
-        if self._q is not None:
-            await self._q.put(evt)
+        if self._qw is not None:
+            await self._qw.send(evt)
 
     async def _dispatch(self, evt):
         typ = evt.type
@@ -335,7 +341,7 @@ class BaseEvtHandler:
         Override+call this e.g. for overall timeouts::
 
             async def run(self):
-                async with anyio.fail_after(30):
+                with anyio.fail_after(30):
                     await super().run()
 
         This method creates a runner task that do the actual event processing.
@@ -353,8 +359,8 @@ class BaseEvtHandler:
         self._proc_lock = anyio.create_lock()
         while True:
             if self._n_proc == 0:
-                await self.taskgroup.spawn(self._process, name="Worker " + self.ref_id)
-            self._proc_check = anyio.create_event()
+                self.taskgroup.start_soon(self._process, name="Worker " + self.ref_id)
+            self._proc_check = anyio.Event()
             await anyio.sleep(0.1)
             await self._proc_check.wait()
 
@@ -397,7 +403,7 @@ class BaseEvtHandler:
                 type = "MyTimeout"
 
             async def get_event():
-                async with anyio.move_on_after(30):
+                with anyio.move_on_after(30):
                     return await super().get_event()
                 return TimeoutEvent()
 
@@ -406,9 +412,9 @@ class BaseEvtHandler:
 
         Raises StopAsyncIteration when no more events will arrive.
         """
-        if self._q is None:
+        if self._qr is None:
             raise StopAsyncIteration
-        evt = await self._q.get()
+        evt = await self._qr.receive()
         if evt is None:
             raise StopAsyncIteration
         log.debug("Event:%s %s", self, evt)
@@ -727,19 +733,17 @@ class BridgeState(_ThingEvtHandler):
         return await super()._task_setup()
 
     async def _task_teardown(self, *tb):
-        async with anyio.fail_after(2, shield=True):
+        with anyio.fail_after(2, shield=True):
             await self.teardown()
             return await super()._task_teardown(*tb)
 
             # Any unprocessed events get relegated to the parent
             while True:
                 try:
-                    async with anyio.fail_after(0.001):
-                        if self._q is None:
+                    with anyio.fail_after(0.001):
+                        if self._qr is None:
                             break
-                        if self._q.empty():
-                            break
-                        evt = self._q.get()
+                        evt = self._qr.get()
                 except TimeoutError:
                     break
                 await self._handle_prev(evt)
@@ -787,7 +791,7 @@ class BridgeState(_ThingEvtHandler):
         try:
             await ch.wait_up()
         except BaseException:
-            async with anyio.move_on_after(2, shield=True) as s:
+            with anyio.move_on_after(2, shield=True) as s:
                 await ch.hang_up()
                 await ch.wait_down()
             raise
@@ -947,7 +951,7 @@ class BridgeState(_ThingEvtHandler):
         """
         if self.bridge is None:
             return
-        async with anyio.move_on_after(2, shield=True) as s:
+        with anyio.move_on_after(2, shield=True) as s:
             log.info("TEARDOWN %s %s", self, self.bridge.channels)
             for ch in list(self.bridge.channels) + list(self.calls):
                 try:
@@ -988,7 +992,7 @@ class ToplevelChannelState(ChannelState):
         except StateError:
             pass
         finally:
-            async with anyio.fail_after(2, shield=True) as s:
+            with anyio.fail_after(2, shield=True) as s:
                 await self.channel.exit_hangup()
 
     async def hang_up(self, reason="normal"):
@@ -1026,19 +1030,19 @@ class CallManager:
         if timeout is None:
             timeout = math.inf
 
-        async with anyio.fail_after(timeout):
+        with anyio.fail_after(timeout):
             self.channel = ch = self.bridge.dial(**self.kw)
         if self.State is not None:
             try:
                 self.state = state = self.State(ch)
                 await state.start_task()
             except BaseException:
-                async with anyio.open_cancel_scope(shield=True):
+                with anyio.CancelScope(shield=True):
                     await ch.hangup()
                 raise
 
     async def __aexit__(self, *exc):
-        async with anyio.fail_after(2, shield=True):
+        with anyio.fail_after(2, shield=True):
             if self.state is None:
                 await self.state.hang_up()
             else:
@@ -1109,7 +1113,7 @@ class _ReadNumber(DTMFHandler):
 
     async def _digit_timer_(self, evt: anyio.abc.Event=None):
         self._digit_deadline = self.first_digit_timeout + await anyio.current_time()
-        async with anyio.open_cancel_scope() as sc:
+        with anyio.CancelScope() as sc:
             self._digit_timer = sc
             if evt is not None:
                 await evt.set()
@@ -1122,7 +1126,7 @@ class _ReadNumber(DTMFHandler):
 
     async def _total_timer_(self, evt: anyio.abc.Event=None):
         self._total_deadline = self.total_timeout + await anyio.current_time()
-        async with anyio.open_cancel_scope() as sc:
+        with anyio.CancelScope() as sc:
             self._total_timer = sc
             if evt is not None:
                 await evt.set()
@@ -1141,8 +1145,8 @@ class _ReadNumber(DTMFHandler):
     async def on_start(self):
         await super().on_start()
         self.num = ""
-        await self.taskgroup.spawn(self._digit_timer_)
-        await self.taskgroup.spawn(self._total_timer_)
+        self.taskgroup.start_soon(self._digit_timer_)
+        self.taskgroup.start_soon(self._total_timer_)
 
     async def on_dtmf_letter(self, evt):
         """Ignore DTMF letters (A-D)."""
