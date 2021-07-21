@@ -110,7 +110,7 @@ class Client:
     async def __aenter__(self):
         await self._init()
         evt = anyio.Event()
-        await self.taskgroup.spawn(self._run, evt)
+        self.taskgroup.start_soon(self._run, evt)
         await evt.wait()
         return self
 
@@ -235,7 +235,7 @@ class Client:
 
         send_stream, receive_stream = anyio.create_memory_object_stream()
 
-        await self.taskgroup.spawn(self._check_runtime, receive_stream)
+        self.taskgroup.start_soon(self._check_runtime, receive_stream)
 
         async for msg in ws:
             if isinstance(msg, CloseConnection):
@@ -326,7 +326,7 @@ class Client:
 
             async with client.on_object_event("StasisStart") as listener:
                 async for objs, event in listener:
-                    await client.spawn(handle_new_client, objs, event)
+                    client.start_soon(handle_new_client, objs, event)
         """
         return _EventHandler(self, event_type, mangler=mangler, filter=filter)
 
@@ -347,7 +347,7 @@ class Client:
 
             async with client.on_object_event("StasisStart", Channel,"Channel") as listener:
                 async for objs, event in listener:
-                    await client.spawn(handle_new_client, objs, event)
+                    client.start_soon(handle_new_client, objs, event)
         """
         # Find the associated model from the Swagger declaration
         event_model = self.event_models.get(event_type)
@@ -392,7 +392,7 @@ class Client:
 
             async with client.on_channel_event("StasisStart") as listener:
                 async for objs, event in listener:
-                    await client.spawn(handle_new_client, objs, event)
+                    client.start_soon(handle_new_client, objs, event)
         """
         return self.on_object_event(event_type, Channel, 'Channel', filter=filter)
 

@@ -63,11 +63,11 @@ async def on_start(client):
         async for objs, event in listener:
             channel = objs['channel']
             await channel.answer()
-            await client.taskgroup.spawn(State(channel).start_task)
+            client.taskgroup.start_soon(State(channel).start_task)
 
 async def main():
     async with asyncari.connect(ast_url, ast_app, ast_username,ast_password) as client:
-        await client.taskgroup.spawn(on_start, client)
+        client.taskgroup.start_soon(on_start, client)
         # Run the WebSocket
         async for m in client:
             print("** EVENT **", m)

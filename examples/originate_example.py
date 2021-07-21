@@ -65,7 +65,7 @@ async def on_start(client):
 
 async def main():
     async with asyncari.connect(ast_url, ast_app, ast_username,ast_password) as client:
-        await client.taskgroup.spawn(on_start, client)
+        client.taskgroup.start_soon(on_start, client)
         async for m in client:
             #print("** EVENT **", m)
             pprint(("** EVENT **", m, vars(m)))

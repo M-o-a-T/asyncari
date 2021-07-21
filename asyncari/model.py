@@ -413,7 +413,7 @@ class Channel(BaseObject):
             await self.set_reason(reason)
         if self._reason is None:
             self._reason_seen = anyio.Event()
-        await self.client.taskgroup.spawn(self._hangup_task)
+        self.client.taskgroup.start_soon(self._hangup_task)
 
     async def exit_hangup(self, reason="normal"):
         """Hang up on exit.
