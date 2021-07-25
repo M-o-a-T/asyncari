@@ -993,7 +993,7 @@ class ToplevelChannelState(ChannelState):
             pass
         finally:
             with anyio.fail_after(2, shield=True) as s:
-                await self.channel.exit_hangup()
+                await self.channel.handle_exit()
 
     async def hang_up(self, reason="normal"):
         await self.channel.set_reason(reason)

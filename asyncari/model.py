@@ -415,7 +415,7 @@ class Channel(BaseObject):
             self._reason_seen = anyio.Event()
         self.client.taskgroup.start_soon(self._hangup_task)
 
-    async def exit_hangup(self, reason="normal"):
+    async def handle_exit(self, reason="normal"):
         """Hang up on exit.
 
         Override this to be a no-op if you want to redirect the
@@ -437,7 +437,7 @@ class Channel(BaseObject):
                 await self._reason_seen.wait()
 
         try:
-            await self.exit_hangup(reason=(self._reason or "normal"))
+            await self.handle_exit(reason=(self._reason or "normal"))
         except Exception as exc:
             log.warning("Hangup %s: %s", self, exc)
 
