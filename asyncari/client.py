@@ -314,7 +314,8 @@ class Client:
         msg = EventMessage(self, msg)
 
         # First, call traditional listeners
-        log.debug("DISP ***** Dispatch:%s\n%s", msg, pformat(vars(msg)))
+        if msg['type'] not in {"ChannelDialplan","ChannelVarset"}:
+            log.debug("DISP ***** Dispatch:%s\n%s", msg, pformat(vars(msg)))
         listeners = list(self.event_listeners.get(msg['type'], [])) \
                     + list(self.event_listeners.get('*', []))
         for listener in listeners:
