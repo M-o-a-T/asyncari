@@ -502,7 +502,14 @@ class Channel(BaseObject):
         await super().do_event(msg)
 
     async def wait_up(self):
+        prev = None
         def chk():
+            nonlocal prev
+            if prev is None:
+                prev = self.state
+                return False
+            if self.state == "Down":
+                raise ChannelExit(self.state)
             return self.state == "Up"
 
         await self.wait_for(chk)
