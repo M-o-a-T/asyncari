@@ -306,7 +306,10 @@ class BaseEvtHandler:
 
     async def _handle_here(self, evt):
         if self._qw is not None:
-            await self._qw.send(evt)
+            try:
+                await self._qw.send(evt)
+            except anyio.ClosedResourceError:
+                pass
 
     async def _dispatch(self, evt):
         typ = evt.type
