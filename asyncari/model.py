@@ -326,7 +326,7 @@ class BaseObject(object):
                 await r
 
         if self._qw is not None:
-            await self._qw.send_nowait(msg)
+            self._qw.send_nowait(msg)
 
         # Finally trigger waiting checks
         await self._has_changed()
