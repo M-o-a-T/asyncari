@@ -196,8 +196,8 @@ class BaseEvtHandler:
 
     async def _task_teardown(self):
         if self._qw is not None:
-            await self._qw.aclose()
-            self._qr, self._qw = None, None
+            qw, self._qr, self._qw = self._qw, None, None
+            await qw.aclose()
 
     @property
     @asynccontextmanager
