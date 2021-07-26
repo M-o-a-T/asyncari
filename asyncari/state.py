@@ -706,7 +706,7 @@ class BridgeState(_ThingEvtHandler):
         super().__init__(bridge.client, **kw)
 
     @classmethod
-    def new(cls, client, *a, type="mixing", **kw):
+    def new(cls, client, *a, type="mixing", name=None, **kw):
         """
         Create a new bridge with this state machine.
 
@@ -718,6 +718,8 @@ class BridgeState(_ThingEvtHandler):
         s.client = client
         s._base_tg = kw.get('taskgroup', client.taskgroup)
         s._bridge_args = dict(type=type, bridgeId=client.generate_id("B"))
+        if name is not None:
+            s._bridge_args["name"] = name
         s._bridge_kw = kw
         return s.task
 
