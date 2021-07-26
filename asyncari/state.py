@@ -180,14 +180,13 @@ class BaseEvtHandler:
     async def start_task(self):
         """This is a shortcut for running this object's async context
         manager / event loop in a separate task."""
-        self._base_tg.start_soon(self._run_ctx, name="start_task " + self.ref_id)
+        await self._base_tg.start(self._run_ctx, name="start_task " + self.ref_id)
 
-    async def _run_ctx(self, evt: anyio.abc.Event=None):
+    async def _run_ctx(self, *, task_status):
         assert self._done is None
         self._done = anyio.Event()
-        async with self.task:
-            if evt is not None:
-                await evt.set()
+        async with self.task:  # event loop
+            task_status.started()
             await self._done.wait()
 
     async def _task_setup(self):
@@ -218,9 +217,7 @@ class BaseEvtHandler:
                 self._run_with_exc = None
 
                 self._run_with_scope = sc
-                evt = anyio.Event()
-                self._base_tg.start_soon(self._run_with_tg, evt, name="run " + repr(self))
-                await evt.wait()
+                await self._base_tg.start(self._run_with_tg, name="run " + repr(self))
                 yielded = True
                 yield self
 
@@ -257,14 +254,12 @@ class BaseEvtHandler:
         else:
             return self._tg
 
-    async def _run_with_tg(self, evt: anyio.abc.Event=None):
+    async def _run_with_tg(self, *, task_status = None):
         try:
             async with anyio.create_task_group() as tg:
                 self._tg = tg
                 await self._task_setup()
-                if evt is not None:
-                    await evt.set()
-                await self.run(evt=evt)
+                await self.run(task_status=task_status)
         except Exception as exc:
             self._run_with_exc = exc
             if self._run_with_scope is not None:
@@ -334,7 +329,7 @@ class BaseEvtHandler:
         log.debug("Unhandled event %s on %s", evt, self)
         return False
 
-    async def run(self, evt: anyio.abc.Event=None):
+    async def run(self, *, task_status=None):
         """
         Process my events.
 
@@ -350,8 +345,8 @@ class BaseEvtHandler:
         Do not replace this method. Do not call it directly.
         """
         log.debug("SetupRun %r < %r", self, getattr(self, '_prev', None))
-        if evt is not None:
-            await evt.set()
+        if task_status is not None:
+            task_status.started()
         await self.on_start()
         if self._ready is not None:
             await self._ready.set()
@@ -550,9 +545,9 @@ class AsyncEvtHandler(_EvtHandler):
 
     """
 
-    async def _run_with_tg(self, *, evt: anyio.abc.Event=None):
+    async def _run_with_tg(self, **kw):
         try:
-            await super()._run_with_tg(evt=evt)
+            await super()._run_with_tg(**kw)
         except anyio.get_cancelled_exc_class():
             if self._done.is_set():
                 await self._handle_prev(_ResultEvent(self._result))
@@ -647,12 +642,12 @@ class DTMFHandler:
 
 
 class _ThingEvtHandler(BaseEvtHandler):
-    async def run(self, evt: anyio.abc.Event=None):
+    async def run(self, *, task_status=None):
         if self._tg is None:
             raise RuntimeError("I do not have a task group. Use 'async with' or 'start_task'.")
         handler = self.ref.on_event("*", self.handle)
         try:
-            await super().run(evt=evt)
+            await super().run(task_status=task_status)
         finally:
             handler.close()
 
@@ -983,10 +978,10 @@ class HangupBridgeState(BridgeState):
 class ToplevelChannelState(ChannelState):
     """A channel state machine that unconditionally hangs up its channel on exception"""
 
-    async def run(self, evt: anyio.abc.Event=None):
+    async def run(self, *, task_status=None):
         """Task for this state. Hangs up the channel on exit."""
         try:
-            await super().run(evt=evt)
+            await super().run(task_status=task_status)
         except ChannelExit:
             pass
         except StateError:
@@ -1007,12 +1002,12 @@ class ToplevelChannelState(ChannelState):
 class OutgoingChannelState(ToplevelChannelState):
     """A channel state machine that waits for an initial StasisStart event before proceeding"""
 
-    async def run(self, evt: anyio.abc.Event=None):
+    async def run(self, *, task_status=None):
         async for evt in self.channel:
             if evt.type != "StatisStart":
                 raise StateError(evt)
             break
-        await super().run(evt=evt)
+        await super().run(task_status=task_status)
 
 
 class CallManager:

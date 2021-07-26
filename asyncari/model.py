@@ -429,9 +429,7 @@ class Channel(BaseObject):
             self.state = "Gone"
             await self._changed.set()
 
-    async def _hangup_task(self, evt: anyio.Event=None):
-        if evt is not None:
-            await evt.set()
+    async def _hangup_task(self):
         if self._reason is None:
             with anyio.move_on_after(self.hangup_delay):
                 await self._reason_seen.wait()

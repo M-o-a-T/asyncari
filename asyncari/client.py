@@ -196,12 +196,10 @@ class Client:
                     await ws.close()
             del self._app
 
-    async def _check_runtime(self, recv, evt: anyio.Event=None):
+    async def _check_runtime(self, recv):
         """This gets streamed a message when processing begins, and `None`
         when it ends. Repeat.
         """
-        if evt is not None:
-            await evt.set()
         while True:
             msg = await recv.receive()
             if msg is False:
