@@ -234,8 +234,6 @@ class BaseEvtHandler:
 
             finally:
                 self._run_with_scope = None
-                if self._tg is not None:
-                    await self._tg.cancel_scope.cancel()
 
                 with anyio.move_on_after(2, shield=True):
                     await self.done()
