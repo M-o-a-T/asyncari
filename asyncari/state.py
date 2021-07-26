@@ -962,7 +962,10 @@ class BridgeState(_ThingEvtHandler):
                 except Exception as exc:
                     log.info("%s detached: %s", ch, exc)
 
-            await self.bridge.destroy()
+            try:
+                await self.bridge.destroy()
+            except BadStatus:
+                pass
 
 
 class HangupBridgeState(BridgeState):
