@@ -748,7 +748,7 @@ class BridgeState(_ThingEvtHandler):
 
     async def add(self, channel):
         """Add a new channel to this bridge."""
-        await self._add_monitor(channel)
+        self._add_monitor(channel)
         await self.bridge.addChannel(channel=channel.id)
         await channel.wait_bridged(self.bridge)
 
@@ -773,7 +773,7 @@ class BridgeState(_ThingEvtHandler):
         )
         self.calls.add(ch)
         ch.remember()
-        await self._add_monitor(ch)
+        self._add_monitor(ch)
         return ch
 
     async def dial(self, State=None, **kw):
@@ -859,7 +859,7 @@ class BridgeState(_ThingEvtHandler):
     async def on_ChannelLeftBridge(self, evt):
         await self._chan_dead(evt)
 
-    async def _add_monitor(self, ch):
+    def _add_monitor(self, ch):
         """Listen to non-bridge events on the channel"""
         if not hasattr(ch, '_bridge_evt'):
             ch._bridge_evt = ch.on_event("*", self._chan_evt)
