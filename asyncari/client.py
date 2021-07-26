@@ -220,7 +220,7 @@ class Client:
                     msg = await recv.receive()
                     if msg is False:
                         return
-                    assert msg is None
+                    assert msg is None, msg
                     pass  # processing delayed, you have a problem
                 log.error("Processing recovered after %.2f sec", (anyio.current_time()) - t)
 
