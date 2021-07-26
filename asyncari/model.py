@@ -497,6 +497,8 @@ class Channel(BaseObject):
             pass
         elif msg.type == "ChannelDtmfReceived":
             pass
+        elif msg.type in {"ChannelDialplan","ChannelVarset"}:
+            pass
         else:
             log.warn("Event not recognized: %s for %s", msg, self)
         await super().do_event(msg)

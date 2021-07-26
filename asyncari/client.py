@@ -237,7 +237,13 @@ class Client:
 
         self.taskgroup.start_soon(self._check_runtime, receive_stream)
 
-        async for msg in ws:
+        ws_ = ws.__aiter__()
+        while True:
+            try:
+                msg = await ws_.__anext__()
+            except (StopAsyncIteration,anyio.ClosedResourceError):
+                break
+
             if isinstance(msg, CloseConnection):
                 break
             elif not isinstance(msg, TextMessage):
