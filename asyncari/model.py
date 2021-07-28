@@ -508,6 +508,8 @@ class Channel(BaseObject):
             if prev is None:
                 prev = self.state
                 return False
+            if prev == self.state:
+                return
             if self.state == "Down":
                 raise ChannelExit(self.state)
             return self.state == "Up"
