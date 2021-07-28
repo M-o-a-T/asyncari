@@ -66,17 +66,28 @@ CFG = attrdict(
         port = 27586,
         ssl = False,
     ),
-    door = "SIP/door",
-    phones = [
-        'SIP/phone1',
-        'SIP/phone2',
-    ],
-    max_time = 300,  # 5min
-    at = attrdict(  # distkv paths
-        bell = P("home.ass.dyn.binary_sensor.bell.state"),
-        door = P("home.ass.dyn.switch.door.cmd"),
+    door = attrdict(
+        phone = "SIP/door",
+        opener = P("home.ass.dyn.switch.door.cmd"),
     ),
+    calls = attrdict(
+#       std = attrdict(
+#           bell = P("home.ass.dyn.binary_sensor.bell.state"),
+#           phones = [
+#               'SIP/phone1',
+#               'SIP/phone2',
+#           ],
+#       ),
+    ),
+    max_time = 300,  # 5min
     code = "0",
+    done = attrdict(  # list of signals that should stop calls
+#       door = attrdict(
+#           state = P("home.ass.dyn.switch.door.state"),
+#           triggered = True,  # caused by the door opener?
+#           kill = False,  # stop ongoing calls?
+#       ),
+    ),
     asterisk = attrdict(
         host = 'localhost',
         port = 8088,
@@ -106,10 +117,9 @@ class DoorState(ToplevelChannelState, DTMFHandler):
         super().__init__(channel)
 
     async def on_DialResult(self, evt):
-        super().on_DialResult(evt)
+        await super().on_DialResult(evt)
         # answered OK
         self.obj.door.state = True
-        self.obj.door.evt.set()
 
     async def on_dtmf(self,evt):
         print("*DTMF*EXT*",evt.digit)
@@ -129,7 +139,8 @@ class _CallState(ToplevelChannelState, DTMFHandler):
         self.dtmf += evt.digit
         code = self.obj.cfg.code
         if self.dtmf == code:
-            await self.obj.dkv.set(self.obj.cfg.at.door, value=True, idem=False)
+            self.obj.door.opened = True
+            await self.obj.dkv.set(self.obj.cfg.door.opener, value=True, idem=False)
         elif code.startswith(self.dtmf):
             return
         self.dtmf = ""
@@ -151,7 +162,7 @@ class _CallState(ToplevelChannelState, DTMFHandler):
             if self.n is not None:
                 self.obj.calls.data[self.n] = None
             for i,cs in enumerate(self.obj.calls.data):
-                if i != n and cs is not None:
+                if cs is not None and (self.n is None or i != self.n):
                     cs.cancel()
 
 
@@ -203,7 +214,11 @@ async def _run_bridge(obj, *, task_status):
         obj.bridge.scope = None
         obj.bridge.cnt = 0
         obj.door.state = None
+        obj.door.opened = False
+        obj.door.called = set()
         if br is not None:
+            for c in br.bridge.channels:
+                await c.hang_up()
             await br.teardown()
         obj.log.info("Stopped bridge")
 
@@ -228,7 +243,7 @@ async def with_bridge(obj):
             obj.bridge.scope.cancel()
 
 
-async def monitor_calls(obj):
+async def monitor_phone_calls(obj):
     """Wait for StasisStart events, indicating that a phone calls the
     bridge.
     """
@@ -241,6 +256,8 @@ async def monitor_calls(obj):
     obj.bridge.cnt = 0
     obj.door = attrdict()
     obj.door.state = None
+    obj.door.opened = False
+    obj.door.called = set()
     obj.calls = attrdict()
     obj.calls.evt = None
     obj.calls.data = None
@@ -254,14 +271,14 @@ async def monitor_calls(obj):
             cs = CallerState(obj, incoming)
             await cs.start_task()
 
-async def _call(br,obj,n,dest):
+async def _call(obj,n,dest):
     """
     Call handler to a single phone.
     """
     with anyio.CancelScope() as sc:
         obj.calls.data[n] = sc
         try:
-            ch = await br.dial(endpoint=dest, State=partial(CalleeState,obj,n))
+            ch = await obj.bridge.br.dial(endpoint=dest, State=partial(CalleeState,obj,n))
             await ch.channel.wait_bridged()
             obj.log.info("Connected %d to %s",n,dest)
             obj.calls.evt.set()
@@ -291,7 +308,7 @@ async def door_call(obj):
     obj.door.state = e = anyio.Event()
     async with with_bridge(obj) as br:
         try:
-            await br.dial(endpoint=obj.cfg.door, State=partial(DoorState,obj))
+            await br.dial(endpoint=obj.cfg.door.phone, State=partial(DoorState,obj))
         except BaseException:
             obj.door.state = None
             raise
@@ -299,37 +316,50 @@ async def door_call(obj):
             e.set()
 
 
-async def call_from_door(obj):
+async def call_phones(obj,name,c):
+    """
+    Call a number of phones.
+    """
+    obj.log.info("from door: %s: Calling phones", name)
+    for dest in c['phones']:
+        if dest in obj.door.called:
+            obj.log.info("from door: %s: %s: already called", name, dest)
+            continue
+        obj.log.info("from door: %s: %s: calling", name, dest)
+        n = len(obj.calls.data)
+        obj.calls.data.append(None)
+        obj.bridge.br._tg.start_soon(_call,obj,n,dest)
+
+    with anyio.move_on_after(obj.cfg.max_time):
+        await obj.calls.evt.wait()
+    for cs in obj.calls.data:
+        if cs is not None:
+            cs.cancel()
+
+
+async def call_from_door(obj,name,c):
     """
     Somebody pressed the button on the door.
 
     We connect to the door, then start to call phones.
     """
     if obj.door.state is not None:
-        obj.log.info("from door: already connected")
+        obj.log.info("from door: %s: already connected",name)
+        await call_phones(obj,name,c)
         return
 
     try:
-        obj.log.info("from door: Calling door")
+        obj.log.info("from door: %s: Calling door",name)
         async with with_bridge(obj) as br:
             try:
                 await door_call(obj)
             except ChannelExit as exc:
                 obj.log.exception("NOT CALLED %r",exc)
                 return
-            obj.log.info("from door: Connected to door")
+            obj.log.info("from door: %s: Connected to door", name)
             obj.calls.data = []
             obj.calls.evt = anyio.Event()
-            obj.log.info("from door: Calling phones")
-            for n,dest in enumerate(obj.cfg.phones):
-                obj.calls.data.append(None)
-                br._tg.start_soon(_call,br,obj,n,dest)
-
-            with anyio.move_on_after(obj.cfg.max_time):
-                await obj.calls.evt.wait()
-            for cs in obj.calls.data:
-                if cs is not None:
-                    cs.cancel()
+            await call_phones(obj,name,c)
 
             if sum(c.state == 'Up' for c in br.bridge.channels) >= 2:
                 # call established
@@ -344,14 +374,41 @@ async def call_from_door(obj):
         obj.log.info("from door: Terminating door")
         obj.door.state = None
         
-async def monitor_distkv(obj):
-    async with obj.dkv.watch(obj.cfg.at.bell, max_depth=0, fetch=False) as mon:
+async def monitor_call(obj,name,c):
+    """
+    Monitor call buttons
+    """
+    async with obj.dkv.watch(c['bell'], max_depth=0, fetch=False) as mon:
         async for evt in mon:
             if not evt.get("value",False):
                 continue
             if obj.door.state is not None:
                 continue
-            obj.ari.taskgroup.start_soon(call_from_door, obj)
+            obj.ari.taskgroup.start_soon(call_from_door, obj,name,c)
+
+async def monitor_done(obj,name,c):
+    """
+    Monitor action result signals
+    """
+    try:
+      async with obj.dkv.watch(c['state'], max_depth=0, fetch=False) as mon:
+        async for evt in mon:
+            if not evt.get("value",False):
+                continue
+            if obj.door.state is None:
+                continue
+            if c.get('triggered',False) and obj.door.opened:
+                obj.door.opened = False
+                continue
+            if c.get('kill',False):
+                obj.bridge.br.hang_up()
+            else:
+                for cs in obj.calls.data:
+                    if cs is not None:
+                        cs.cancel()
+    except Exception as exc:
+        obj.log.exception("Owch %r %r",name,c)
+
 
 @click.command()
 @click.option("-v", "--verbose", count=True, help="Be more verbose. Can be used multiple times.")
@@ -374,9 +431,12 @@ async def main(ctx, verbose,quiet,cfg):
     await bridge_cleanup(obj)
 
     async with anyio.create_task_group() as obj.task:
-        obj.task.start_soon(monitor_distkv, obj)
+        for name,c in obj.cfg.calls.items():
+            obj.task.start_soon(monitor_call, obj,name,c)
+        for name,c in obj.cfg.done.items():
+            obj.task.start_soon(monitor_done, obj,name,c)
         # client.taskgroup.start_soon(monitor_calls, client)
-        await monitor_calls(obj)
+        await monitor_phone_calls(obj)
 
 if __name__ == "__main__":
     try:
