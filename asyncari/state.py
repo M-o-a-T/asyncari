@@ -914,7 +914,7 @@ class BridgeState(_ThingEvtHandler):
             pass
         else:
             cc = CAUSE_MAP.get(cc, "normal")
-            for c in list(self.bridge.channels) + list(self.calls):
+            for c in self.bridge.channels | self.calls:
                 await c.set_reason(cc)
 
     async def _chan_dead(self, evt):
@@ -954,7 +954,7 @@ class BridgeState(_ThingEvtHandler):
             return
         with anyio.move_on_after(2, shield=True) as s:
             log.info("TEARDOWN %s %s", self, self.bridge.channels)
-            for ch in list(self.bridge.channels) + list(self.calls):
+            for ch in self.bridge.channels | self.calls:
                 try:
                     await ch.hang_up(reason=hangup_reason)
                 except Exception as exc:
