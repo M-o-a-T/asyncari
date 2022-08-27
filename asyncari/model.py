@@ -486,17 +486,19 @@ class Channel(BaseObject):
             except KeyError:
                 log.warning("%s not in %s", msg.recording, self)
 
+        elif msg.type == "ChannelHangupRequest":
+            pass
+        elif msg.type == "ChannelConnectedLine":
+            pass
         elif msg.type == "ChannelStateChange":
             log.debug("State:%s %s", self.state, self)
-
-        elif msg.type in { "DialStart", "DialState", "DialResult", "ChannelCallerId",
-                "ChannelHangupRequest", "ChannelConnectedLine", "ChannelDtmfReceived",
-                "ChannelDialplan" }:
-            pass  # nothing to do here(?)
-
+            pass
+        elif msg.type == "ChannelDtmfReceived":
+            pass
+        elif msg.type in {"ChannelDialplan","ChannelVarset"}:
+            pass
         else:
             log.warn("Event not recognized: %s for %s", msg, self)
-
         await super().do_event(msg)
 
     async def wait_up(self):
