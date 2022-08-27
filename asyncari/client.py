@@ -207,7 +207,7 @@ class Client:
             assert msg is not None
 
             try:
-                with anyio.fail_after(0.2):
+                with anyio.fail_after(0.5):
                     msg = await recv.receive()
                     if msg is False:
                         return
