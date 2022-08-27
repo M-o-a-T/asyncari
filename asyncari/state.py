@@ -381,7 +381,8 @@ class BaseEvtHandler:
                 try:
                     success = await self._dispatch(evt)
                 except BaseException as exc:
-                    await self._handle_prev(evt)
+                    with anyio.fail_after(2, shield=True):
+                        await self._handle_prev(evt)
                     raise
                 else:
                     if success:
@@ -550,15 +551,17 @@ class AsyncEvtHandler(_EvtHandler):
         try:
             await super()._run_with_tg(**kw)
         except anyio.get_cancelled_exc_class():
-            if self._done.is_set():
-                await self._handle_prev(_ResultEvent(self._result))
-            else:
-                await self._handle_prev(_ErrorEvent(CancelledError()))
+            with anyio.fail_after(2, shield=True):
+                if self._done.is_set():
+                    await self._handle_prev(_ResultEvent(self._result))
+                else:
+                    await self._handle_prev(_ErrorEvent(CancelledError()))
             raise
         except Exception as exc:
             await self._handle_prev(_ErrorEvent(exc))
         except BaseException:
-            await self._handle_prev(_ErrorEvent(CancelledError()))
+            with anyio.fail_after(2, shield=True):
+                await self._handle_prev(_ErrorEvent(CancelledError()))
             raise
         else:
             await self._handle_prev(_ResultEvent(self._result))
