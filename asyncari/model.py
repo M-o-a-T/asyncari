@@ -326,7 +326,7 @@ class BaseObject(object):
                 await r
 
         if self._qw is not None:
-            await self._qw.send_nowait(msg)
+            self._qw.send_nowait(msg)
 
         # Finally trigger waiting checks
         await self._has_changed()
@@ -415,7 +415,7 @@ class Channel(BaseObject):
             self._reason_seen = anyio.Event()
         self.client.taskgroup.start_soon(self._hangup_task)
 
-    async def exit_hangup(self, reason="normal"):
+    async def handle_exit(self, reason="normal"):
         """Hang up on exit.
 
         Override this to be a no-op if you want to redirect the
@@ -429,15 +429,13 @@ class Channel(BaseObject):
             self.state = "Gone"
             await self._changed.set()
 
-    async def _hangup_task(self, evt: anyio.Event=None):
-        if evt is not None:
-            await evt.set()
+    async def _hangup_task(self):
         if self._reason is None:
             with anyio.move_on_after(self.hangup_delay):
                 await self._reason_seen.wait()
 
         try:
-            await self.exit_hangup(reason=(self._reason or "normal"))
+            await self.handle_exit(reason=(self._reason or "normal"))
         except Exception as exc:
             log.warning("Hangup %s: %s", self, exc)
 
@@ -492,15 +490,26 @@ class Channel(BaseObject):
             log.debug("State:%s %s", self.state, self)
 
         elif msg.type in { "DialStart", "DialState", "DialResult", "ChannelCallerId",
-                "ChannelHangupRequest", "ChannelConnectedLine", "ChannelDtmfReceived" }:
+                "ChannelHangupRequest", "ChannelConnectedLine", "ChannelDtmfReceived",
+                "ChannelDialplan" }:
             pass  # nothing to do here(?)
+
         else:
             log.warn("Event not recognized: %s for %s", msg, self)
 
         await super().do_event(msg)
 
     async def wait_up(self):
+        prev = None
         def chk():
+            nonlocal prev
+            if prev is None:
+                prev = self.state
+                return False
+            if prev == self.state:
+                return
+            if self.state == "Down":
+                raise ChannelExit(self.state)
             return self.state == "Up"
 
         await self.wait_for(chk)

@@ -196,12 +196,10 @@ class Client:
                     await ws.close()
             del self._app
 
-    async def _check_runtime(self, recv, evt: anyio.Event=None):
+    async def _check_runtime(self, recv):
         """This gets streamed a message when processing begins, and `None`
         when it ends. Repeat.
         """
-        if evt is not None:
-            await evt.set()
         while True:
             msg = await recv.receive()
             if msg is False:
@@ -222,7 +220,7 @@ class Client:
                     msg = await recv.receive()
                     if msg is False:
                         return
-                    assert msg is None
+                    assert msg is None, msg
                     pass  # processing delayed, you have a problem
                 log.error("Processing recovered after %.2f sec", (anyio.current_time()) - t)
 
@@ -237,7 +235,13 @@ class Client:
 
         self.taskgroup.start_soon(self._check_runtime, receive_stream)
 
-        async for msg in ws:
+        ws_ = ws.__aiter__()
+        while True:
+            try:
+                msg = await ws_.__anext__()
+            except (StopAsyncIteration,anyio.ClosedResourceError):
+                break
+
             if isinstance(msg, CloseConnection):
                 break
             elif not isinstance(msg, TextMessage):
@@ -308,7 +312,8 @@ class Client:
         msg = EventMessage(self, msg)
 
         # First, call traditional listeners
-        log.debug("DISP ***** Dispatch:%s\n%s", msg, pformat(vars(msg)))
+        if msg['type'] not in {"ChannelDialplan","ChannelVarset"}:
+            log.debug("DISP ***** Dispatch:%s\n%s", msg, pformat(vars(msg)))
         listeners = list(self.event_listeners.get(msg['type'], [])) \
                     + list(self.event_listeners.get('*', []))
         for listener in listeners:
