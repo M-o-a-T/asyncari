@@ -17,11 +17,10 @@ setup(
         "setuptools_scm",
     ],
     install_requires=[
-        "trio >= 0.11",
-        "anyio >= 3.1.0",
+        "anyio >= 4.0",
         "asyncswagger11",
         "asks >= 2.2",
-        "attrs>=18",
+        "attrs >= 18",
         "asyncwebsockets",
     ],
     keywords=[

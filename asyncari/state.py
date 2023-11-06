@@ -210,7 +210,7 @@ class BaseEvtHandler:
             raise RuntimeError("Task already running")
 
         yielded = False
-        with anyio.open_cancel_scope() as sc:
+        with anyio.CancelScope() as sc:
             try:
                 if self._done is None:
                     self._done = anyio.Event()
@@ -352,7 +352,7 @@ class BaseEvtHandler:
         if self._ready is not None:
             await self._ready.set()
 
-        self._proc_lock = anyio.create_lock()
+        self._proc_lock = anyio.Lock()
         while True:
             if self._n_proc == 0:
                 self.taskgroup.start_soon(self._process, name="Worker " + self.ref_id)
