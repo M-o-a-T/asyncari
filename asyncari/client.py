@@ -86,7 +86,6 @@ class Client:
 
     def __init__(self, taskgroup, base_url, apps, http_client):
         self.taskgroup = taskgroup
-        self._apps = apps
         url = urllib.parse.urljoin(base_url, "ari/api-docs/resources.json")
         self.swagger = SwaggerClient(http_client=http_client, url=url)
         self.class_map = CLASS_MAP.copy()
@@ -94,6 +93,10 @@ class Client:
         self._id_name = "ARI.%x.%x%03x" % (os.getpid(), int(tm), int(tm * 0x1000) & 0xFFF)
         self._id_seq = 0
         self._reader = None  # Event reader
+
+        if isinstance(apps, str):
+            apps = apps.split(',', 1)[0]
+        self._apps = apps
 
     def __repr__(self):
         return "<%s:%s>" % (self.__class__.__name__, self._id_name)
@@ -130,7 +133,7 @@ class Client:
         """
         id = self.client.generate_id()
         chan = Channel(self, id=id)
-        ch = await self.channels.originateWithId(endpoint=endpoint, app=self._app, **kw)
+        ch = await self.channels.originateWithId(endpoint=endpoint, app=self._apps[0], **kw)
         return State(ch)
 
     def __enter__(self):
@@ -158,7 +161,7 @@ class Client:
 
     @property
     def app(self):
-        return self._app
+        return self._apps[0]
 
     async def _run(self, evt: anyio.Event=None):
         """Connect to the WebSocket and begin processing messages.
@@ -173,12 +176,7 @@ class Client:
         the context manager.
         """
         ws = None
-        apps = self._apps
-        if isinstance(apps, list):
-            self._app = apps[0]
-            apps = ','.join(apps)
-        else:
-            self._app = apps.split(',', 1)[0]
+        apps = ",".join(self._apps)
 
         try:
             ws = await self.swagger.events.eventWebsocket(app=apps)
@@ -194,7 +192,7 @@ class Client:
                 self.websockets.remove(ws)
                 async with anyio.CancelScope(shield=True):
                     await ws.close()
-            del self._app
+
 
     async def _check_runtime(self, recv):
         """This gets streamed a message when processing begins, and `None`
