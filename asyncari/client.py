@@ -95,7 +95,7 @@ class Client:
         self._reader = None  # Event reader
 
         if isinstance(apps, str):
-            apps = apps.split(',', 1)[0]
+            apps = apps.split(',')
         self._apps = apps
 
     def __repr__(self):
