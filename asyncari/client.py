@@ -190,7 +190,7 @@ class Client:
         finally:
             if ws is not None:
                 self.websockets.remove(ws)
-                async with anyio.CancelScope(shield=True):
+                with anyio.CancelScope(shield=True):
                     await ws.close()
 
 
