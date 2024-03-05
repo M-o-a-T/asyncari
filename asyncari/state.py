@@ -770,7 +770,7 @@ class BridgeState(_ThingEvtHandler):
         log.debug("DIAL %s", kw.get('endpoint', 'unknown'))
         ch = await self.client.channels.originate(
             channelId=ch_id,
-            app=self.client._app,
+            app=self.client.app,
             appArgs=["dialed", kw.get('endpoint', 'unknown')],
             **kw
         )
