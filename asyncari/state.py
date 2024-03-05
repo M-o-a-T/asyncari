@@ -261,7 +261,7 @@ class BaseEvtHandler:
         except Exception as exc:
             self._run_with_exc = exc
             if self._run_with_scope is not None:
-                await self._run_with_scope.cancel()
+                self._run_with_scope.cancel()
         finally:
             self._tg = None
             await self._task_teardown()
@@ -277,7 +277,7 @@ class BaseEvtHandler:
         """
         log.debug("TeardownRun %r < %r", self, getattr(self, '_prev', None))
         if self._tg is not None:
-            await self._tg.cancel_scope.cancel()
+            self._tg.cancel_scope.cancel()
 
     async def done_sub(self):
         """Terminate my sub-handler, assuming one exists.
@@ -1143,8 +1143,8 @@ class _ReadNumber(DTMFHandler):
 
     async def done(self, res):
         await super().done(res)
-        await self._digit_timer.cancel()
-        await self._total_timer.cancel()
+        self._digit_timer.cancel()
+        self._total_timer.cancel()
 
     async def on_start(self):
         await super().on_start()

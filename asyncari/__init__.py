@@ -37,7 +37,7 @@ async def connect(base_url, apps, username, password):
                 try:
                     yield client
                 finally:
-                    await tg.cancel_scope.cancel()
+                    tg.cancel_scope.cancel()
                 pass  # end client
             pass  # end taskgroup
     finally:

@@ -17,7 +17,7 @@ setup(
         "setuptools_scm",
     ],
     install_requires=[
-        "anyio >= 3.7",
+        "anyio >= 4",
         "asyncswagger11",
         "asks >= 2.2",
         "attrs >= 18",
