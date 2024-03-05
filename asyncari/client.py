@@ -183,7 +183,7 @@ class Client:
             self.websockets.add(ws)
 
             if evt is not None:
-                await evt.set()
+                evt.set()
 
             await self.__run(ws)
 

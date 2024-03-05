@@ -231,7 +231,7 @@ class BaseObject(object):
 
     async def _has_changed(self):
         c, self._changed = self._changed, anyio.Event()
-        await c.set()
+        c.set()
 
     def remember(self):
         """
@@ -387,7 +387,7 @@ class Channel(BaseObject):
         self.recordings = set()
         self.vars = {}
 
-    async def set_reason(self, reason):
+    def set_reason(self, reason):
         """Set the reason for hanging up."""
 
         if reason not in self.REASONS:
@@ -399,7 +399,7 @@ class Channel(BaseObject):
 
         self._reason = reason
         if self._reason_seen is not None:
-            await self._reason_seen.set()
+            self._reason_seen.set()
 
     async def hang_up(self, reason=None):
         """Call this (and only this) to hang up a channel.
@@ -410,7 +410,7 @@ class Channel(BaseObject):
             return
         self._do_hangup = True
         if reason is not None:
-            await self.set_reason(reason)
+            self.set_reason(reason)
         if self._reason is None:
             self._reason_seen = anyio.Event()
         self.client.taskgroup.start_soon(self._hangup_task)
@@ -427,7 +427,7 @@ class Channel(BaseObject):
                     await self.hangup(reason=reason)
         finally:
             self.state = "Gone"
-            await self._changed.set()
+            self._changed.set()
 
     async def _hangup_task(self):
         if self._reason is None:
@@ -663,10 +663,10 @@ class Playback(BaseObject):
         if self.ref is not None:
             await self.ref.do_event(msg)
         if msg.type == "PlaybackStarted":
-            await self._is_playing.set()
+            self._is_playing.set()
         elif msg.type == "PlaybackFinished":
-            await self._is_playing.set()
-            await self._is_done.set()
+            self._is_playing.set()
+            self._is_done.set()
         else:
             log.warn("Event not recognized: %s for %s", msg, self)
         await super().do_event(msg)
@@ -705,10 +705,10 @@ class LiveRecording(BaseObject):
         if self.ref is not None:
             await self.ref.do_event(msg)
         if msg.type == "RecordingStarted":
-            await self._is_recording.set()
+            self._is_recording.set()
         elif msg.type == "RecordingFinished":
-            await self._is_recording.set()
-            await self._is_done.set()
+            self._is_recording.set()
+            self._is_done.set()
         else:
             log.warn("Event not recognized: %s for %s", msg, self)
         await super().do_event(msg)

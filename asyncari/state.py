@@ -266,7 +266,7 @@ class BaseEvtHandler:
             self._tg = None
             await self._task_teardown()
             if self._done is not None:
-                await self._done.set()
+                self._done.set()
                 self._done = None
 
     async def done(self):
@@ -350,7 +350,7 @@ class BaseEvtHandler:
             task_status.started()
         await self.on_start()
         if self._ready is not None:
-            await self._ready.set()
+            self._ready.set()
 
         self._proc_lock = anyio.Lock()
         while True:
@@ -362,7 +362,7 @@ class BaseEvtHandler:
 
     async def _process(self, evt: anyio.abc.Event=None):
         if evt is not None:
-            await evt.set()
+            evt.set()
         try:
             log.debug("StartRun %r < %r", self, getattr(self, '_prev', None))
             while True:
@@ -375,7 +375,7 @@ class BaseEvtHandler:
                 finally:
                     self._n_proc -= 1
                 if self._n_proc == 0:
-                    await self._proc_check.set()
+                    self._proc_check.set()
 
                 # Any unhandled event is relegated to the parent
                 try:
@@ -884,12 +884,12 @@ class BridgeState(_ThingEvtHandler):
 
     async def on_ChannelDestroyed(self, evt):
         """calls self._chan_dead"""
-        await self._set_cause(evt)
+        self._set_cause(evt)
         await self._chan_dead(evt)
 
     async def on_ChannelHangupRequest(self, evt):
         """kills the channel"""
-        await self._set_cause(evt)
+        self._set_cause(evt)
         try:
             await evt.channel.hang_up()
         except Exception as exc:
@@ -906,7 +906,7 @@ class BridgeState(_ThingEvtHandler):
         except KeyError:
             pass
 
-    async def _set_cause(self, evt):
+    def _set_cause(self, evt):
         """Set the hangup cause for this bridge's channels"""
         try:
             cc = evt.cause
@@ -915,7 +915,7 @@ class BridgeState(_ThingEvtHandler):
         else:
             cc = CAUSE_MAP.get(cc, "normal")
             for c in self.bridge.channels | self.calls:
-                await c.set_reason(cc)
+                c.set_reason(cc)
 
     async def _chan_dead(self, evt):
         ch = evt.channel
@@ -1000,7 +1000,7 @@ class ToplevelChannelState(ChannelState):
                 await self.channel.handle_exit()
 
     async def hang_up(self, reason="normal"):
-        await self.channel.set_reason(reason)
+        self.channel.set_reason(reason)
         await self.channel.hang_up()
 
     async def done(self):
@@ -1120,7 +1120,7 @@ class _ReadNumber(DTMFHandler):
         with anyio.CancelScope() as sc:
             self._digit_timer = sc
             if evt is not None:
-                await evt.set()
+                evt.set()
             while True:
                 delay = self._digit_deadline - await anyio.current_time()
                 if delay <= 0:
@@ -1133,7 +1133,7 @@ class _ReadNumber(DTMFHandler):
         with anyio.CancelScope() as sc:
             self._total_timer = sc
             if evt is not None:
-                await evt.set()
+                evt.set()
             while True:
                 delay = self._total_deadline - await anyio.current_time()
                 if delay <= 0:
