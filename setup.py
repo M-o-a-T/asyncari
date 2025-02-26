@@ -19,8 +19,7 @@ setup(
     install_requires=[
         "anyio",
         "asyncswagger11",
-        "attrs",
-        "asyncwebsockets",
+        "aiohttp",
     ],
     keywords=[
         "asterisk",

@@ -13,7 +13,7 @@ import math
 from concurrent.futures import CancelledError
 
 import anyio
-from asks.errors import BadStatus
+from aiohttp import ClientResponseError
 from async_generator import asynccontextmanager
 
 from .model import ChannelExit, StateError
@@ -967,7 +967,7 @@ class BridgeState(_ThingEvtHandler):
 
             try:
                 await self.bridge.destroy()
-            except BadStatus:
+            except ClientResponseError:
                 pass
 
 
@@ -1112,7 +1112,7 @@ class _ReadNumber(DTMFHandler):
             pb, self.playback = self.playback, None
             try:
                 await pb.stop()
-            except BadStatus:
+            except ClientResponseError:
                 pass
 
     async def _digit_timer_(self, evt: anyio.abc.Event=None):

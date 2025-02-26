@@ -1,4 +1,3 @@
 anyio
 asyncswagger11
-attrs
-asyncwebsockets
+aiohttp
