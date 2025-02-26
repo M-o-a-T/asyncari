@@ -56,3 +56,5 @@ coverage.xml
 *.log
 *.pot
 /.pybuild/
+
+venv/
