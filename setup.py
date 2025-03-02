@@ -18,7 +18,7 @@ setup(
     ],
     install_requires=[
         "anyio",
-        "asyncswagger11",
+        "aioswagger11",
         "aiohttp",
     ],
     keywords=[

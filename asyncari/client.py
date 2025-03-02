@@ -14,7 +14,7 @@ import urllib
 from pprint import pformat
 
 import anyio
-from asyncswagger11.client import SwaggerClient
+from aioswagger11.client import SwaggerClient
 from wsproto.events import CloseConnection, TextMessage
 
 from .model import CLASS_MAP

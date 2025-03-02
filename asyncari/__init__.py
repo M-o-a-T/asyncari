@@ -8,7 +8,7 @@ import urllib.parse
 
 import anyio
 from async_generator import asynccontextmanager
-from asyncswagger11.http_client import AsynchronousHttpClient, ApiKeyAuthenticator
+from aioswagger11.http_client import AsynchronousHttpClient, ApiKeyAuthenticator
 
 from asyncari.client import Client
 
