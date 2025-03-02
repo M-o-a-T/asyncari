@@ -20,6 +20,7 @@ setup(
         "anyio",
         "aioswagger11",
         "aiohttp",
+        "async_generator",
     ],
     keywords=[
         "asterisk",
