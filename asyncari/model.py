@@ -24,6 +24,7 @@ from weakref import WeakValueDictionary
 
 import anyio
 from aiohttp import ClientResponseError
+import aiohttp
 
 from .util import mayNotExist
 
@@ -816,19 +817,19 @@ class Mailbox(BaseObject):
         await super().do_event(msg)
 
 
-async def promote(client, resp, operation_json):
+async def promote(client, resp: aiohttp.ClientResponse, operation_json):
     """Promote a response from the request's HTTP response to a first class
      object.
 
     :param client:  ARI client.
     :type  client:  client.Client
-    :param resp:    asks response.
-    :type  resp:    asks.Response
+    :param resp:    aiohttp response.
+    :type  resp:    aiohttp.ClientResponse
     :param operation_json: JSON model from Swagger API.
     :type  operation_json: dict
     :return:
     """
-    if resp.status_code == NO_CONTENT:
+    if resp.status == NO_CONTENT:
         log.debug("resp=%s", resp)
         return None
     res = resp.text
