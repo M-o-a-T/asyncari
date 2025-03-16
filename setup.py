@@ -21,6 +21,7 @@ setup(
         "aioswagger11",
         "aiohttp",
         "async_generator",
+        "wsproto",
     ],
     keywords=[
         "asterisk",
