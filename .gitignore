@@ -25,6 +25,7 @@ __pycache__/
 /parts/
 /sdist/
 /var/
+/debian/
 *.egg-info/
 .installed.cfg
 *.egg
