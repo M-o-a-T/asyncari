@@ -8,7 +8,7 @@
 #
 import asyncari
 import anyio
-from asks.errors import BadStatus
+from httpx import HTTPStatusError
 
 import logging
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ async def clean_bridges(client):
             continue
         try:
             await b.destroy()
-        except BadStatus as exc:
+        except HTTPStatusError as exc:
             print(b.id,exc)
         else:
             print(b.id,"… deleted")

@@ -16,7 +16,7 @@ import asyncari
 from asyncari.state import ToplevelChannelState, DTMFHandler
 import anyio
 import logging
-import asks
+from httpx import HTTPStatusError
 
 import os
 ast_host = os.getenv("AST_HOST", 'localhost')
@@ -46,7 +46,7 @@ class State(ToplevelChannelState, DTMFHandler):
         if self.do_hang:
             try:
                 await self.channel.continueInDialplan()
-            except asks.errors.BadStatus:
+            except HTTPStatusError:
                 pass
         
 async def on_start(client):

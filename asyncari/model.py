@@ -23,7 +23,7 @@ import re
 from weakref import WeakValueDictionary
 
 import anyio
-from asks.errors import BadStatus
+from httpx import HTTPStatusError
 
 from .util import mayNotExist
 
@@ -103,7 +103,7 @@ class Repository(object):
                 jsc = oper.json
                 try:
                     res = await oper(**kwargs)
-                except BadStatus as exc:
+                except HTTPStatusError as exc:
                     d = getattr(exc, 'data', None)
                     if d is not None:
                         d = d.get('message', None)

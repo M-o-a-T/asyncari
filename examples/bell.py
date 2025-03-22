@@ -60,7 +60,7 @@ from asyncari.model import ChannelExit, StateError
 from moat.util import read_cfg, attrdict, combine_dict, P
 from moat.kv.client import open_client
 import uuid
-import asks.errors
+from httpx import HTTPStatusError
 import signal
 
 from pprint import pprint
@@ -167,7 +167,7 @@ class DoorState(ToplevelChannelState, DTMFHandler):
             await anyio.sleep(0.7)
             try:
                 await p.stop()
-            except asks.errors.BadStatus:
+            except HTTPStatusError:
                 pass
         else:
             if f is None:
@@ -268,7 +268,7 @@ class CallerState(_CallState):
                 await p.stop()
                 try:
                     await br.add(self.channel)
-                except asks.errors.BadStatus as exc:
+                except HTTPStatusError as exc:
                     self.obj.log.warning("SETUP ERROR %s", exc)
                 evt.set()
             self.obj.task.start_soon(sub)

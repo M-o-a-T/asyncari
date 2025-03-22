@@ -12,7 +12,6 @@ from asyncari.util import mayNotExist
 import anyio
 import logging
 
-from asks.errors import AsksException  # HTTPNotFound, HTTPBadRequest
 from pprint import pprint
 
 import os

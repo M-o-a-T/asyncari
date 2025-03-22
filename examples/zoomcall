@@ -23,7 +23,7 @@ from datetime import datetime,timedelta
 import sys
 
 import asks
-from asks.errors import BadStatus
+from httpx import HTTPStatusError
 from time import time
 from pprint import pprint
 
@@ -96,7 +96,7 @@ class ZoomState(ToplevelChannelState):
 	    await channel.ring()
 	    await anyio.sleep(0.5)
 	    await channel.answer()
-	except BadStatus:
+	except HTTPStatusError:
             # Just ignore this call.
             # Since this is a ToplevelStateChannel, it will auto-hangup when we're done with it
             # (unless we tell it not to).
@@ -126,7 +126,7 @@ class ZoomState(ToplevelChannelState):
 
             try:
                 pw = await getZoomPassword(num)
-            except BadStatus as exc:
+            except HTTPStatusError as exc:
                 if exc.status_code == NOT_FOUND:
                     return await SyncPlay(self, media='sound:'+sound_dir+'/no_such_meeting')
                 else:
