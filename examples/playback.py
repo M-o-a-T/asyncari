@@ -35,7 +35,7 @@ async def on_start(objs, event):
     await channel.answer()
     playback = await channel.play(media='sound:demo-congrats')
 
-    async def on_dtmf(channel, event):
+    async def on_dtmf(event):
         """Callback for DTMF events.
 
         DTMF events control the playback operation.
@@ -59,17 +59,25 @@ async def on_start(objs, event):
             await playback.control(operation='restart')
         elif digit == '#':
             await playback.stop()
-            await channel.continueInDialplan()
+            await event.channel.continueInDialplan()
         else:
             print >> sys.stderr, "Unknown DTMF %s" % digit
 
     channel.on_event('ChannelDtmfReceived', on_dtmf)
 
 async def main():
-    async with asyncari.connect(ast_url, ast_app, ast_username,ast_password) as client_:
+    async with (
+            asyncari.connect(ast_url, ast_app, ast_username,ast_password) as client_,
+            anyio.create_task_group() as tg,
+            ):
         global client
         client = client_
-        client.on_channel_event('StasisStart', on_start)
+        @tg.start_soon
+        async def mon_start():
+            async with client.on_channel_event("StasisStart") as listener:
+                async for objs, event in listener:
+                    tg.start_soon(on_start, objs, event)
+
         # Run the WebSocket
         async for m in client:
             print("** EVENT **", m)

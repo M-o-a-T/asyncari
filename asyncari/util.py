@@ -66,7 +66,7 @@ class mayNotExist:
     def __exit__(self, c, e, t):
         if e is None:
             return
-        if isinstance(e, HTTPStatusError) and e.status_code == NOT_FOUND:
+        if isinstance(e, HTTPStatusError) and e.response.status_code == NOT_FOUND:
             return True
         if isinstance(e, KeyError):
             return True

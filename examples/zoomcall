@@ -127,7 +127,7 @@ class ZoomState(ToplevelChannelState):
             try:
                 pw = await getZoomPassword(num)
             except HTTPStatusError as exc:
-                if exc.status_code == NOT_FOUND:
+                if exc.response.status_code == NOT_FOUND:
                     return await SyncPlay(self, media='sound:'+sound_dir+'/no_such_meeting')
                 else:
                     return await SyncPlay(self, media='sound:'+sound_dir+'/internal_error')
