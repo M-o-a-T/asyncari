@@ -832,11 +832,10 @@ async def promote(client, resp: aiohttp.ClientResponse, operation_json):
     if resp.status == NO_CONTENT:
         log.debug("resp=%s", resp)
         return None
-    res = await resp.text()
-    if res == "":
+    resp_json = await resp.json()
+    if not resp_json:
         log.debug("resp=%s (empty)", resp)
         return None
-    resp_json = await resp.json()
     log.debug("resp=%s", resp_json)
 
     response_class = operation_json['responseClass']

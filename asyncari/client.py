@@ -13,9 +13,10 @@ import time
 import urllib
 from pprint import pformat
 
+from aiohttp import WSMessage, WSMsgType
 import anyio
 from aioswagger11.client import SwaggerClient
-from wsproto.events import CloseConnection, TextMessage
+from wsproto.events import CloseConnection
 
 from .model import CLASS_MAP
 from .model import Channel, Bridge, Playback, LiveRecording, StoredRecording, Endpoint, DeviceState, Sound
@@ -240,12 +241,14 @@ class Client:
             except (StopAsyncIteration,anyio.ClosedResourceError):
                 break
 
-            if isinstance(msg, CloseConnection):
+            if msg.type == WSMsgType.CLOSE or msg.type == WSMsgType.CLOSED:
                 break
-            elif not isinstance(msg, TextMessage):
+
+            elif not isinstance(msg, WSMessage):
                 log.warning("Unknown JSON message type: %s", repr(msg))
                 continue  # ignore
-            msg_json = json.loads(msg.data)
+            msg_json = msg.json()
+
             if not isinstance(msg_json, dict) or 'type' not in msg_json:
                 log.error("Invalid event: %s", msg)
                 continue
