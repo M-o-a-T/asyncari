@@ -12,13 +12,13 @@ description = "Asynchronous adapter to the Asterisk ARI interface"
 readme = "README.rst"
 classifiers = [
     "Development Status :: 4 - Beta",
+    "Framework :: AnyIO",
+    "Framework :: AsyncIO",
+    "Framework :: Trio",
     "Intended Audience :: Developers",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Framework :: Asyncio",
-    "Framework :: Trio",
-    "Framework :: Anyio",
     "Topic :: Communications :: Telephony",
 ]
 keywords = [ "asterisk", "ari" ]
@@ -40,7 +40,7 @@ test = [
 
 [tool.flake8]
 max-line-length=99
-ignore=E402,E731,E127,E502,E123,W503
+ignore="E402,E731,E127,E502,E123,W503"
 
 [tool.towncrier]
 package = "asyncari"
