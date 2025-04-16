@@ -14,7 +14,7 @@ from concurrent.futures import CancelledError
 
 import anyio
 from httpx import HTTPStatusError
-from async_generator import asynccontextmanager
+from contextlib import asynccontextmanager
 
 from .model import ChannelExit, StateError
 from .util import NumberTooShortError, NumberTooLongError, NumberTimeoutError, DigitTimeoutError

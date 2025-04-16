@@ -28,6 +28,7 @@ dependencies = [
     "anyio >= 4.6",
     "attrs >= 18",
     "asyncwebsockets",
+    "asyncswagger11",
 ]
 dynamic = ["version"]
 
