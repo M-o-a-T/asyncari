@@ -469,7 +469,8 @@ class Channel(BaseObject):
                 self.bridge = None
 
         elif msg.type == "PlaybackStarted":
-            assert msg.playback not in self.playbacks
+            # does happen when resuming playback
+            # assert msg.playback not in self.playbacks
             self.playbacks.add(msg.playback)
         elif msg.type == "PlaybackFinished":
             try:
