@@ -967,7 +967,7 @@ class BridgeState(_ThingEvtHandler):
 
             try:
                 await self.bridge.destroy()
-            except HTTPError:
+            except HTTPStatusError:
                 pass
 
 
