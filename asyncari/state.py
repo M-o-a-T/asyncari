@@ -978,7 +978,7 @@ class HangupBridgeState(BridgeState):
 
     async def on_channel_end(self, ch, evt=None):
         await super().on_channel_end(ch, evt)
-        if _count(1 for c in (self.bridge.channels | self.calls) if c.state in {'Up','Ringing'}) < 2:
+        if _count(1 for c in (self.bridge.channels | self.calls) if c.state in {'Down', 'Up','Ringing'}) < 2:
             for c in self.bridge.channels:
                 await c.hang_up()
             await self.done()
