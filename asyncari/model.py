@@ -271,7 +271,8 @@ class BaseObject(object):
             :return: First class object mapped from HTTP response.
             """
             # Add id to param list
-            kwargs.update(self.id_generator.get_params(self.json))
+            if item != 'externalMedia':
+                kwargs.update(self.id_generator.get_params(self.json))
             log.debug("Issuing command %s %s", item, kwargs)
             oper_ = oper
             resp = await oper_(**kwargs)
